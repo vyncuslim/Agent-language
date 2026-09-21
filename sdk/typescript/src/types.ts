@@ -18,13 +18,19 @@ export interface ConceptSourceRecord {
   aliases?: Record<string, string[]>;
   relations?: Record<string, string[]>;
   domains?: string[];
+  /** Optional model-native semantic vector or latent adapter payload. */
+  embedding?: number[];
   metadata?: Record<string, unknown>;
 }
 
 export interface CompiledConceptRecord {
   conceptId: string;
+  /** Encrypted-at-rest semantic representation used by authorized agents. */
+  semantic: unknown;
+  aliases?: Record<string, string[]>;
   domains: string[];
   relations?: Record<string, string[]>;
+  embedding?: number[];
   metadata?: Record<string, unknown>;
 }
 
