@@ -1,7 +1,10 @@
 # VAML private semantic material — NEVER commit production copies
 private-lexicon/
 private-vocab/
+world-lexicon/
 *.private.jsonl
+*.world.jsonl
+*.world.sorted.jsonl
 *.vocab.json
 *.vocab.key
 *.semantic.key

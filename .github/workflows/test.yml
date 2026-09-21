@@ -27,6 +27,9 @@ jobs:
       - name: Install
         run: npm install --ignore-scripts --no-audit --no-fund
 
+      - name: Privacy lint
+        run: npm run privacy
+
       - name: Typecheck and build
         run: npm run build
 
