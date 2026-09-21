@@ -40,6 +40,9 @@ private-build/
 .env.*
 !.env.example
 
+# Generated acoustic demo/media
+vaml-acoustic-demo.wav
+
 # TypeScript / Node
 node_modules/
 dist/
