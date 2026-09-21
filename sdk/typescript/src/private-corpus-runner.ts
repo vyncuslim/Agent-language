@@ -13,7 +13,9 @@ import type { SourcePack1Candidate } from "./source-pack-1.js";
 import type { ConceptSourceRecord } from "./types.js";
 import { buildVocabulary } from "./vocabulary.js";
 
-const MAX_LINE_BYTES = 1024 * 1024;
+const MAX_SOURCE_LINE_BYTES = 1024 * 1024;
+const MAX_INTERNAL_LINE_BYTES = 2 * 1024 * 1024;
+const OPAQUE_ID = /^[A-Za-z0-9_-]{43}$/;
 
 export interface PrivateCorpusSnapshot {
   id: string;
@@ -181,6 +183,7 @@ export async function sha256File(file: string): Promise<string> {
 }
 
 export async function verifySha256File(file: string, expected: string, label = file): Promise<void> {
+  if (!OPAQUE_ID.test(expected)) throw new Error(`${label} has invalid SHA-256 encoding`);
   const actual = await sha256File(file);
   if (actual !== expected) throw new Error(`${label} SHA-256 mismatch`);
 }
@@ -194,6 +197,14 @@ export function assertOutsidePublicRepository(publicRepoRoot: string, targetPath
   }
 }
 
+function pathsOverlap(a: string, b: string): boolean {
+  const left = resolve(a);
+  const right = resolve(b);
+  const lr = relative(left, right);
+  const rl = relative(right, left);
+  return lr === "" || (!lr.startsWith("..") && !isAbsolute(lr)) || (!rl.startsWith("..") && !isAbsolute(rl));
+}
+
 function validatePlan(plan: PrivateCorpusBuildPlan): void {
   if (plan.format !== "vaml-private-corpus-build-plan" || plan.version !== "0.1") {
     throw new Error("Invalid private corpus build plan");
@@ -203,8 +214,11 @@ function validatePlan(plan: PrivateCorpusBuildPlan): void {
     throw new Error("Private corpus build plan must contain at least one source snapshot");
   }
   if (!plan.output?.directory || !plan.output.prefix) throw new Error("Build output directory/prefix is required");
-  if (!/^[A-Za-z0-9._-]+$/.test(plan.output.prefix)) {
-    throw new Error("output.prefix may contain only letters, numbers, dot, underscore and hyphen");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(plan.output.prefix)) {
+    throw new Error("output.prefix must start with an alphanumeric character and contain only safe filename characters");
+  }
+  if (pathsOverlap(plan.tempDir, plan.output.directory)) {
+    throw new Error("Temporary and output directories must not overlap");
   }
 }
 
@@ -259,8 +273,11 @@ class ShardedPrivateAlignmentResolver {
     await verifySha256File(file, ref.sha256, `alignment shard ${prefix}`);
     if ((await fs.stat(file)).size > 64 * 1024 * 1024) throw new Error("Alignment shard size limit");
     const parsed = JSON.parse(await fs.readFile(file, "utf8")) as PrivateAlignmentShard;
-    if (parsed.format !== "vaml-private-alignment-shard" || parsed.version !== "0.1") {
+    if (parsed.format !== "vaml-private-alignment-shard" || parsed.version !== "0.1" || !parsed.entries) {
       throw new Error("Invalid private alignment shard");
+    }
+    for (const [lookupId, alignmentKey] of Object.entries(parsed.entries)) {
+      if (!OPAQUE_ID.test(lookupId) || !alignmentKey.trim()) throw new Error("Invalid private alignment entry");
     }
     this.cache.set(prefix, parsed);
     this.order.push(prefix);
@@ -289,9 +306,7 @@ async function loadSourceManifest(ref: { path: string; sha256: string }): Promis
   if (!manifest.sources.length || manifest.sources.length > 10_000) throw new Error("Invalid corpus source count");
   const registry = buildCorpusSourceRegistry(manifest.sources);
   for (const source of registry.values()) {
-    if (/unknown|unresolved|tbd/i.test(source.license)) {
-      throw new Error(`Source ${source.id} has unresolved licensing`);
-    }
+    if (/unknown|unresolved|tbd/i.test(source.license)) throw new Error(`Source ${source.id} has unresolved licensing`);
   }
   return manifest;
 }
@@ -306,7 +321,12 @@ async function loadAlignmentManifest(ref: PrivateAlignmentManifestRef): Promise<
   if (!Number.isInteger(manifest.prefixChars) || manifest.prefixChars < 1 || manifest.prefixChars > 8) {
     throw new Error("alignment manifest prefixChars must be between 1 and 8");
   }
-  if (!manifest.shards || Object.keys(manifest.shards).length > 65_536) throw new Error("Invalid alignment shard index");
+  const entries = Object.entries(manifest.shards ?? {});
+  if (!entries.length || entries.length > 65_536) throw new Error("Invalid alignment shard index");
+  const prefixPattern = new RegExp(`^[A-Za-z0-9_-]{${manifest.prefixChars}}$`);
+  for (const [prefix, ref] of entries) {
+    if (!prefixPattern.test(prefix) || !ref.file || !OPAQUE_ID.test(ref.sha256)) throw new Error("Invalid alignment shard reference");
+  }
   return manifest;
 }
 
@@ -331,11 +351,7 @@ function candidateToCorpusRow(candidate: SourcePack1Candidate, alignmentKey: str
 }
 
 function rowItem(row: CorpusRow): PendingRow {
-  return {
-    alignmentKey: row.alignmentKey,
-    digest: digestString(canonicalJson(row)),
-    row,
-  };
+  return { alignmentKey: row.alignmentKey, digest: digestString(canonicalJson(row)), row };
 }
 
 function compareItems(a: PendingRow, b: PendingRow): number {
@@ -367,7 +383,11 @@ async function advance(cursor: ChunkCursor): Promise<void> {
   cursor.current = next.done ? undefined : (JSON.parse(next.value) as PendingRow);
 }
 
-async function mergeGroup(files: string[], output: string): Promise<{ rows: number; duplicates: number }> {
+async function mergeGroup(
+  files: string[],
+  output: string,
+  emitCorpusRows: boolean,
+): Promise<{ rows: number; duplicates: number }> {
   const cursors = await Promise.all(files.map(makeCursor));
   const handle = await fs.open(output, "wx", 0o600);
   let rows = 0;
@@ -383,12 +403,12 @@ async function mergeGroup(files: string[], output: string): Promise<{ rows: numb
       }
       if (!selected?.current) break;
       const item = selected.current;
-      const duplicate = item.alignmentKey === lastAlignment && item.digest === lastDigest;
-      if (duplicate) {
+      if (item.alignmentKey === lastAlignment && item.digest === lastDigest) {
         duplicates += 1;
       } else {
-        const line = JSON.stringify(item);
-        if (Buffer.byteLength(line) > MAX_LINE_BYTES) throw new Error("Normalized row size limit");
+        const line = JSON.stringify(emitCorpusRows ? item.row : item);
+        const limit = emitCorpusRows ? MAX_SOURCE_LINE_BYTES : MAX_INTERNAL_LINE_BYTES;
+        if (Buffer.byteLength(line) > limit) throw new Error("Normalized row size limit");
         await handle.write(line + "\n");
         rows += 1;
         lastAlignment = item.alignmentKey;
@@ -417,7 +437,7 @@ async function externalSort(
     for (let i = 0; i < files.length; i += fanIn) {
       const group = files.slice(i, i + fanIn);
       const output = join(tempDir, `merge-${generation}-${String(next.length).padStart(6, "0")}.jsonl`);
-      const result = await mergeGroup(group, output);
+      const result = await mergeGroup(group, output, false);
       duplicates += result.duplicates;
       next.push(output);
       for (const file of group) await fs.rm(file, { force: true });
@@ -425,7 +445,7 @@ async function externalSort(
     files = next;
     generation += 1;
   }
-  const merged = await mergeGroup(files, finalFile);
+  const merged = await mergeGroup(files, finalFile, true);
   duplicates += merged.duplicates;
   for (const file of files) await fs.rm(file, { force: true });
   return { rows: merged.rows, duplicates };
@@ -435,7 +455,7 @@ async function* lines(file: string): AsyncGenerator<string> {
   const reader = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
   try {
     for await (const line of reader) {
-      if (Buffer.byteLength(line) > MAX_LINE_BYTES) throw new Error("Source line limit");
+      if (Buffer.byteLength(line) > MAX_SOURCE_LINE_BYTES) throw new Error("Source line limit");
       if (line.trim()) yield line;
     }
   } finally {
@@ -509,7 +529,6 @@ export async function runPrivateCorpusBuild(
 
   for (const snapshot of plan.snapshots) {
     if (snapshot.format !== "source-pack-1-candidate-jsonl") throw new Error("Unsupported snapshot format");
-    assertOutsidePublicRepository(options.publicRepoRoot, snapshot.path, `snapshot ${snapshot.id}`);
     await verifySha256File(snapshot.path, snapshot.sha256, `snapshot ${snapshot.id}`);
     const expectedSourceId = normalized(snapshot.sourceId, "snapshot.sourceId");
     const source = sourceRegistry.get(expectedSourceId);
@@ -549,8 +568,9 @@ export async function runPrivateCorpusBuild(
   const sourcePolicyDigest = b64(sha256(canonicalJson(sourceManifest)));
   async function* records(): AsyncGenerator<ConceptSourceRecord> {
     for await (const line of lines(sortedCorpus)) {
-      const item = JSON.parse(line) as CorpusRow;
-      const record = assembler.push(item);
+      const row = JSON.parse(line) as CorpusRow;
+      if (row.kind !== "lexeme" && row.kind !== "agent-native") throw new Error("Invalid sorted corpus row");
+      const record = assembler.push(row);
       if (record) {
         record.metadata = { ...record.metadata, sourcePolicyDigest };
         yield record;
