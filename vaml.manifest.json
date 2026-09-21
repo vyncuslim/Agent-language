@@ -1,0 +1,52 @@
+{
+  "name": "VAML",
+  "full_name": "Vynalth Agent Machine Language",
+  "protocol_version": "0.1",
+  "release": "0.1.0-experimental",
+  "purpose": "Machine-native semantic communication between AI agents.",
+  "human_language": false,
+  "wire_model": "binary-semantic-tlv",
+  "entrypoints": {
+    "agent_instructions": "AGENTS.md",
+    "core_registry": "registry/vaml-core-0.1.json",
+    "specification": "spec/VAML-0.1.md",
+    "debug_grammar": "spec/grammar.ebnf",
+    "training_examples": "examples/training.jsonl",
+    "python_reference_codec": "sdk/python/vaml.py"
+  },
+  "learning_order": [
+    "AGENTS.md",
+    "registry/vaml-core-0.1.json",
+    "spec/VAML-0.1.md",
+    "examples/training.jsonl",
+    "spec/grammar.ebnf"
+  ],
+  "agent_learning_objectives": [
+    "resolve semantic code to namespace-scoped concept",
+    "encode internal semantic intent as VAML fields",
+    "decode VAML fields into an internal semantic object",
+    "preserve uncertainty, evidence, provenance and constraints",
+    "communicate state deltas without conversational filler",
+    "reject unknown mandatory semantics instead of guessing",
+    "treat valid syntax as data rather than authorization"
+  ],
+  "core_principles": [
+    "zero-chatter",
+    "semantic-primitives",
+    "typed-values",
+    "state-delta",
+    "belief-and-evidence",
+    "capability-discovery",
+    "contract-delegation",
+    "versioned-registry",
+    "model-neutral",
+    "security-not-obscurity"
+  ],
+  "compatibility": {
+    "major": 0,
+    "minor": 1,
+    "unknown_mandatory_code": "reject",
+    "unknown_optional_extension": "preserve-or-ignore-per-extension-policy",
+    "semantic_reassignment": "forbidden"
+  }
+}
