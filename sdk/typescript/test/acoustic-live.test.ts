@@ -91,3 +91,31 @@ test("microphone receiver decodes zero-gap back-to-back acoustic packets", () =>
 
   assert.deepEqual(seen, [first, second]);
 });
+
+test("microphone receiver resynchronizes after a corrupted acoustic packet", () => {
+  const badFrame = randomBytes(32);
+  const goodFrame = randomBytes(40);
+  const damaged = wavPcm16(encodeVamlFrameToWav(badFrame, { leadingSilenceMs: 50, trailingSilenceMs: 0 }));
+  const good = wavPcm16(encodeVamlFrameToWav(goodFrame, { leadingSilenceMs: 0, trailingSilenceMs: 50 }));
+  const corruptionStart = Math.floor(damaged.length * 0.65);
+  for (let i = 0; i < 5000 && corruptionStart + i < damaged.length; i++) {
+    damaged[corruptionStart + i] = 0;
+  }
+  const stream = new Int16Array(damaged.length + good.length);
+  stream.set(damaged, 0);
+  stream.set(good, damaged.length);
+
+  const seen: Buffer[] = [];
+  const failures: string[] = [];
+  const receiver = new AcousticMicrophoneReceiver({
+    onFrame: (decoded) => seen.push(decoded.frame),
+    onDecodeError: (error) => failures.push(error.message),
+  });
+  for (let offset = 0; offset < stream.length; offset += 1024) {
+    receiver.pushPcm16(stream.subarray(offset, Math.min(stream.length, offset + 1024)));
+  }
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /CRC|frame size/);
+  assert.deepEqual(seen, [goodFrame]);
+});
