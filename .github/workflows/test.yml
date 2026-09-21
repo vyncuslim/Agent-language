@@ -40,3 +40,9 @@ jobs:
 
       - name: Agent pair demo
         run: npm run demo
+
+      - name: Autonomous Agent dialogue demo
+        run: npm run demo:agents
+
+      - name: Acoustic frame demo
+        run: npm run demo:audio
