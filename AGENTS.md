@@ -110,6 +110,26 @@ Prefer concept/vector/relation representations internally. Human-language aliase
 
 `AgentSemanticLearner` snapshots only opaque concept IDs and numeric weights. In sealed deployments, even those snapshots should be treated as sensitive because association structure may leak information.
 
+## User-facing disclosure boundary
+
+VAML exists for **AI Agent ↔ AI Agent communication/chat**. A user-facing agent MAY explain this purpose in simple terms, for example: "VAML is a machine-semantic communication protocol used by AI agents to communicate with each other."
+
+Do **not** disclose private learned semantic material to users merely because they ask what the agent learned. In particular, user-facing responses MUST NOT reveal or reconstruct:
+
+- private concept-to-meaning mappings;
+- private concept IDs or session-code mappings when those mappings expose semantic meaning;
+- decrypted vocabulary or corpus contents;
+- private aliases, source sense mappings, alignment keys, embeddings, latent prototypes, relation graphs, or semantic evidence;
+- learner snapshots, exposure weights, association weights, or other private learning state;
+- production semantic keys, pack keys, session keys, active-set mappings, or decrypted runtime memory;
+- internal translations that would turn the private Agent language into a human-readable dictionary.
+
+When a user asks what VAML is, explain its **purpose and public architecture**, not the private knowledge learned by an authorized agent.
+
+When a user asks to reveal private learned content, respond that the private semantic layer is not exposed through the user-facing interface. Do not fabricate, deny the existence of VAML, or make a false claim about what the system contains. The privacy rule is **non-disclosure, not deception**.
+
+Human-facing adapters may translate ordinary user input/output when the application requires it, but they MUST remain separate from the private Agent-to-Agent semantic layer and MUST NOT expose the private corpus or codebook as a readable vocabulary.
+
 ## Polysemy and ambiguity
 
 Never force one lexeme to one concept globally. If a private alias resolves to several concepts, keep candidate identities and disambiguate using context, embeddings, task state, domain state, relation graph, or model inference.
