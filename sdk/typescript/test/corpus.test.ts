@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   WorldSemanticCorpusAssembler,
+  readCorpusSourceAdapter,
+  type CorpusSourceAdapter,
   type CorpusSourceDescriptor,
 } from "../src/index.js";
 
@@ -12,6 +14,13 @@ const sources: CorpusSourceDescriptor[] = [
     license: "TEST-ONLY",
     redistribution: "private-only",
     embeddingSpace: "test-space",
+  },
+  {
+    id: "source-b",
+    kind: "terminology",
+    license: "TEST-ONLY",
+    redistribution: "private-only",
+    embeddingSpace: "other-space",
   },
   {
     id: "agent-native-generator",
@@ -74,6 +83,36 @@ test("agent-native concepts need no human-language alias", () => {
   assert.equal(assembler.stats().agentNativeRows, 1);
 });
 
+test("multiple embedding spaces remain private metadata instead of being mixed", () => {
+  const assembler = new WorldSemanticCorpusAssembler(sources);
+  assembler.push({
+    kind: "lexeme",
+    alignmentKey: "private:multi-vector",
+    sourceId: "source-a",
+    language: "en",
+    lexeme: "synthetic-a",
+    embedding: [1, 0],
+  });
+  assembler.push({
+    kind: "lexeme",
+    alignmentKey: "private:multi-vector",
+    sourceId: "source-b",
+    language: "en",
+    lexeme: "synthetic-b",
+    embedding: [0, 1],
+  });
+  const concept = assembler.finish();
+  assert.ok(concept);
+  assert.equal(concept.embedding, undefined);
+  const corpus = (concept.metadata?.corpus ?? {}) as {
+    vectorSpaces?: string[];
+    vectorCentroids?: Record<string, number[]>;
+  };
+  assert.deepEqual(corpus.vectorSpaces, ["other-space", "test-space"]);
+  assert.deepEqual(corpus.vectorCentroids?.["test-space"], [1, 0]);
+  assert.deepEqual(corpus.vectorCentroids?.["other-space"], [0, 1]);
+});
+
 test("corpus assembler rejects unsorted input", () => {
   const assembler = new WorldSemanticCorpusAssembler(sources);
   assembler.push({
@@ -116,4 +155,25 @@ test("unknown corpus source is rejected", () => {
       }),
     /Unknown corpus source/,
   );
+});
+
+test("source adapter enforces descriptor source identity", async () => {
+  const adapter: CorpusSourceAdapter = {
+    descriptor: sources[0],
+    async *rows() {
+      yield {
+        kind: "lexeme",
+        alignmentKey: "private:adapter",
+        sourceId: "source-b",
+        language: "en",
+        lexeme: "synthetic-adapter",
+      };
+    },
+  };
+
+  await assert.rejects(async () => {
+    for await (const _row of readCorpusSourceAdapter(adapter)) {
+      // Iteration triggers adapter validation.
+    }
+  }, /different source/);
 });
