@@ -19,10 +19,16 @@ import type {
 const PACK_INFO = Buffer.from("VAML-0.2/private-lexicon", "utf8");
 
 export function conceptId(masterSemanticKey: Uint8Array, record: ConceptSourceRecord): string {
-  const semanticMaterial = {
-    semantic: record.semantic,
-    domains: [...(record.domains ?? [])].sort(),
-  };
+  const semanticMaterial =
+    record.identityMaterial !== undefined
+      ? {
+          identityVersion: "vaml-private-identity/0.1",
+          identityMaterial: record.identityMaterial,
+        }
+      : {
+          semantic: record.semantic,
+          domains: [...(record.domains ?? [])].sort(),
+        };
   return b64(hmacSha256(masterSemanticKey, canonicalJson(semanticMaterial)));
 }
 
