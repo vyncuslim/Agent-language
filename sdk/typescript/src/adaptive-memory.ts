@@ -338,9 +338,8 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
     const output = [...new Set(ids ?? [])].sort();
     if (output.length > 256) throw new Error("Too many related concepts");
     for (const id of output) {
-      if (!this.base.get(id) && !this.learned.has(id) && !stagedIds?.has(id)) {
-        throw new Error("Unknown related concept");
-      }
+      const learnedKnown = stagedIds ? stagedIds.has(id) : this.learned.has(id);
+      if (!this.base.get(id) && !learnedKnown) throw new Error("Unknown related concept");
     }
     return output;
   }
