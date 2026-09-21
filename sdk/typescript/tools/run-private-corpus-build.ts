@@ -1,7 +1,12 @@
 import { promises as fs } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runPrivateCorpusBuild, unb64, type PrivateCorpusBuildPlan } from "../src/index.js";
+import {
+  assertOutsidePublicRepository,
+  runPrivateCorpusBuild,
+  unb64,
+  type PrivateCorpusBuildPlan,
+} from "../src/index.js";
 
 function usage(): never {
   throw new Error("Usage: tsx tools/run-private-corpus-build.ts <private-build-plan.json>");
@@ -25,7 +30,12 @@ async function main(): Promise<void> {
   const toolDir = dirname(fileURLToPath(import.meta.url));
   const publicRepoRoot = resolve(toolDir, "../../..");
   const absolutePlanPath = resolve(planPath);
+  assertOutsidePublicRepository(publicRepoRoot, absolutePlanPath, "build plan");
+
   const plan = JSON.parse(await fs.readFile(absolutePlanPath, "utf8")) as PrivateCorpusBuildPlan;
+  if (!/^[A-Za-z0-9._-]+$/.test(plan.output?.prefix ?? "")) {
+    throw new Error("output.prefix may contain only letters, numbers, dot, underscore and hyphen");
+  }
 
   const receipt = await runPrivateCorpusBuild(plan, { semanticKey, packKey }, { publicRepoRoot });
   console.log(`Private corpus build ${receipt.runId} completed.`);
