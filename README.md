@@ -1,42 +1,65 @@
 # VAML — Vynalth Agent Machine Language
 
-VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.3-experimental` adds **Corpus Source Pack 1** on top of the VAML World Semantic Corpus while remaining wire-compatible with VAML 0.2.
+VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.4-experimental` adds **Private Corpus Build Runner 0.1** on top of Corpus Source Pack 1 and the VAML World Semantic Corpus while remaining wire-compatible with VAML 0.2.
 
 VAML deliberately avoids a public `word -> opcode` dictionary. Production agents communicate through private concept identities, session-local opaque codes, typed binary fields, and authenticated encryption.
 
 ## Architecture
 
 ```text
-private dictionaries / entities / terminology / model semantics
-                         ↓
-               source-pack adapters
-                         ↓
-              source candidates
-                         ↓
-             private sense aligner
-                         ↓
-            private alignmentKey
-                         ↓
-       WorldSemanticCorpusAssembler
-                         ↓
-           encrypted vocab shards
-                         ↓
-            PrivateSemanticIndex
-                         ↓
-            AgentSemanticLearner
-                         ↓
-          internal private concepts
-                         ↓
-           ephemeral peer negotiation
-                         ↓
-           session-local 64-bit codes
-                         ↓
-             encrypted VAML frames
-                         ↓
-                    peer agent
+private source snapshots
+        ↓
+checksum verification
+        ↓
+source-pack adapters
+        ↓
+SourcePack1Candidate
+        ↓
+opaque lookup ID
+        ↓
+private sharded alignment
+        ↓
+bounded sort + exact dedupe
+        ↓
+WorldSemanticCorpusAssembler
+        ↓
+encrypted vocab shards
+        ↓
+PrivateSemanticIndex
+        ↓
+AgentSemanticLearner
+        ↓
+session-local VAML codes
+        ↓
+encrypted VAML frames
+        ↓
+peer agent
 ```
 
 The same private concept receives a fresh wire code in a fresh session.
+
+## Private Corpus Build Runner 0.1
+
+The new offline runner is the production-oriented path from authorized private source snapshots to encrypted VAML corpus shards.
+
+It performs:
+
+- SHA-256 pinning of source snapshots, source policy files, alignment manifests and alignment shards;
+- source enablement/license sanity checks;
+- deterministic candidate quality gating;
+- opaque candidate lookup IDs;
+- private alignment lookup through lazily loaded shards;
+- fail-closed missing-alignment behavior by default;
+- bounded-memory chunk sorting;
+- k-way merge and exact duplicate removal;
+- encrypted VAML corpus shard generation;
+- private corpus manifest generation;
+- private build receipt generation with input/output digests and build counters;
+- path checks that reject sensitive build material inside the public repository.
+
+The runner intentionally **does not download or scrape source material**. Acquisition, licensing review, source-specific extraction and semantic alignment remain explicit private preprocessing steps.
+
+See `spec/PRIVATE-CORPUS-RUNNER-0.1.md`.
 
 ## Corpus Source Pack 1
 
@@ -50,7 +73,7 @@ The first concrete source pack covers five categories:
 
 Public code contains adapters and synthetic tests only. Third-party dumps, private source registries, source-to-concept alignment maps and compiled production shards stay outside Git history.
 
-External IDs such as WordNet synsets or Wikidata QIDs are provenance identifiers. They are **not VAML opcodes**. Every source candidate must go through a private semantic aligner before becoming a corpus concept.
+External IDs such as WordNet synsets or Wikidata QIDs are provenance identifiers. They are **not VAML opcodes**. Every source candidate must go through private semantic alignment before becoming a corpus concept.
 
 See `spec/CORPUS-SOURCE-PACK-1.md`.
 
@@ -94,9 +117,17 @@ It does **not** create a mathematical guarantee that a human controlling the aut
 
 ## Scale
 
-Corpus input is grouped and sorted by a private `alignmentKey`. The assembler streams one concept group at a time instead of loading the entire corpus into memory.
+The low-level corpus assembler requires rows grouped by private `alignmentKey`. Private Corpus Build Runner 0.1 removes that burden from source adapters by externally sorting normalized rows using bounded private chunks before assembly.
 
-The default output shard contains 50,000 concepts. There is no protocol-level shard-count limit.
+Default runner settings:
+
+```text
+chunkRows   100,000 normalized rows in memory
+shardSize    50,000 compiled concepts per encrypted shard
+alignment   lazy sharded lookup with a small in-memory cache
+```
+
+The protocol itself does not impose a shard-count limit.
 
 ```text
 20 shards       ≈ 1,000,000 concepts
@@ -109,24 +140,23 @@ These numbers describe capacity, not corpus content bundled with this repository
 ## Repository layout
 
 ```text
-AGENTS.md                                           Agent loading/learning contract
-vaml.manifest.json                                 Machine entrypoint
-spec/VAML-0.2.md                                   Wire protocol
-spec/VOCABULARY-0.2.md                             Private vocabulary architecture
-spec/WORLD-LEXICON-0.2.md                          Large multilingual lexicon layer
-spec/WORLD-SEMANTIC-CORPUS-0.1.md                  Multi-source private corpus architecture
-spec/CORPUS-SOURCE-PACK-1.md                       First real source-ingestion profiles
-spec/AGENT-LEARNING-0.2.md                         Agent learning model
-sdk/typescript/src/corpus.ts                       Streaming corpus assembler + provenance
-sdk/typescript/src/source-adapter.ts               Source adapter boundary
-sdk/typescript/src/source-pack-1.ts                WordNet/Wiktionary/UniMorph/Wikidata adapters
-sdk/typescript/src/learning.ts                     Opaque learner
-sdk/typescript/src/semantic-index.ts               Private semantic index
-sdk/typescript/tools/build-world-semantic-corpus.ts Corpus -> encrypted shard builder
-sdk/typescript/tools/privacy-lint.ts                Public-repository leakage guard
-sdk/typescript/test/source-pack-1.test.ts           Source Pack 1 synthetic tests
-sdk/typescript/test/corpus.test.ts                  Synthetic corpus tests
-sdk/typescript/examples/agent-pair-demo.ts          Agent A <-> Agent B demo
+AGENTS.md                                             Agent loading/learning contract
+vaml.manifest.json                                   Machine entrypoint
+spec/VAML-0.2.md                                     Wire protocol
+spec/VOCABULARY-0.2.md                               Private vocabulary architecture
+spec/WORLD-LEXICON-0.2.md                            Large multilingual lexicon layer
+spec/WORLD-SEMANTIC-CORPUS-0.1.md                    Multi-source private corpus architecture
+spec/CORPUS-SOURCE-PACK-1.md                         First source-ingestion profiles
+spec/PRIVATE-CORPUS-RUNNER-0.1.md                    Verified offline corpus build pipeline
+spec/schema/private-corpus-build-plan-0.1.schema.json Build-plan schema
+spec/AGENT-LEARNING-0.2.md                           Agent learning model
+sdk/typescript/src/source-pack-1.ts                  WordNet/Wiktionary/UniMorph/Wikidata adapters
+sdk/typescript/src/private-corpus-runner.ts          Offline build runner core
+sdk/typescript/tools/run-private-corpus-build.ts     Offline build runner CLI
+sdk/typescript/tools/build-world-semantic-corpus.ts  Low-level pre-sorted corpus builder
+sdk/typescript/tools/privacy-lint.ts                 Public-repository leakage guard
+sdk/typescript/test/private-corpus-runner.test.ts    End-to-end synthetic runner tests
+sdk/typescript/examples/agent-pair-demo.ts           Agent A <-> Agent B demo
 ```
 
 ## Quick start
@@ -138,7 +168,17 @@ npm run check
 npm run demo
 ```
 
-Build a private world semantic corpus:
+Preferred private build path:
+
+```bash
+VAML_SEMANTIC_KEY=<base64url-32-byte-secret> \
+VAML_PACK_KEY=<base64url-32-byte-secret> \
+npm run private-corpus-run -- /secure/vaml/build-plan.json
+```
+
+The build plan, snapshots, alignment data, temporary chunks, plaintext sorted corpus, production encrypted packs and build receipts must stay outside the public repository.
+
+Low-level pre-sorted build remains available:
 
 ```bash
 VAML_SEMANTIC_KEY=<base64url-32-byte-secret> \
@@ -150,10 +190,6 @@ npm run corpus-pack -- \
   50000
 ```
 
-Input rows must be grouped and sorted by private `alignmentKey`. The source manifest must register every source and its license/redistribution policy.
-
-Outputs are encrypted `.vocab.json` shards plus a private corpus manifest. Do not commit those artifacts.
-
 ## Privacy guard
 
 Run:
@@ -162,7 +198,7 @@ Run:
 npm run privacy
 ```
 
-The guard rejects common private corpus/lexicon/source-pack paths, alignment maps, vocabulary packs, keys and obvious fixed public word/opcode registries.
+The guard rejects common private corpus/lexicon/source-pack/build paths, source snapshots, alignment artifacts, build plans/receipts, vocabulary packs, keys and obvious fixed public word/opcode registries.
 
 ## Security boundary
 
@@ -172,4 +208,4 @@ The target is **opaque-by-default agent communication and private machine semant
 
 ## Status
 
-**VAML 0.2.3 experimental runtime · VAML 0.2 wire-compatible · World Semantic Corpus 0.1 · Corpus Source Pack 1.**
+**VAML 0.2.4 experimental runtime · VAML 0.2 wire-compatible · World Semantic Corpus 0.1 · Corpus Source Pack 1 · Private Corpus Build Runner 0.1.**
