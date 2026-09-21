@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vaml.invalid/schema/private-alignment-shard-0.1.schema.json",
+  "title": "VAML Private Alignment Shard 0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "entries"],
+  "properties": {
+    "format": { "const": "vaml-private-alignment-shard" },
+    "version": { "const": "0.1" },
+    "entries": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "type": "string", "minLength": 43, "maxLength": 43 }
+    }
+  }
+}
