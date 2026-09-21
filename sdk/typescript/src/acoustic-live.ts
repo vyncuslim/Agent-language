@@ -6,13 +6,9 @@ const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 export interface AcousticClockRecoveryOptions {
   profile?: AcousticProfile;
   maxFrameBytes?: number;
-  /** Maximum sample-clock error searched around the nominal symbol duration. */
   maxClockDriftPpm?: number;
-  /** Search granularity for the initial symbol-clock estimate. */
   clockSearchStepPpm?: number;
-  /** Fine timing search around every predicted symbol boundary. */
   timingSearchSamples?: number;
-  /** Maximum leading audio searched for a preamble. */
   preambleSearchSeconds?: number;
 }
 
@@ -48,14 +44,6 @@ interface SymbolDecision {
   quality: number;
 }
 
-/**
- * One-shot adaptive decoder for microphone/room recordings.
- *
- * Unlike decodeVamlFrameFromWav(), this decoder does not assume the sender and
- * receiver clocks have exactly the same samples-per-symbol. It estimates the
- * clock from the preamble and then performs an early/late timing search for
- * each symbol, allowing the symbol boundary to follow a small residual drift.
- */
 export function decodeVamlFrameFromMicrophonePcm(
   pcm: Int16Array,
   options: AcousticClockRecoveryOptions = {},
@@ -67,20 +55,11 @@ export function decodeVamlFrameFromMicrophonePcm(
 }
 
 export interface AcousticMicrophoneReceiverOptions extends AcousticClockRecoveryOptions {
-  /** Actual PCM sample rate supplied by the microphone callback. */
   inputSampleRate?: number;
-  /** Bounded rolling buffer for live capture. */
   maxBufferedSeconds?: number;
   onFrame?: (frame: AcousticDecodedFrame) => void;
 }
 
-/**
- * Streaming microphone receiver.
- *
- * pushFloat32() accepts WebAudio-style [-1, 1] samples. pushPcm16() accepts
- * signed PCM16. Input is continuously resampled to the selected VAML acoustic
- * profile rate before synchronization and clock recovery.
- */
 export class AcousticMicrophoneReceiver {
   private readonly profile: AcousticProfile;
   private readonly options: AcousticClockRecoveryOptions;
@@ -213,10 +192,7 @@ function tryDecodeAdaptive(
   if (!headerResult) return { status: "need-more", lock };
   cursor = headerResult.cursor;
   const header = symbolsToBytes(headerResult.symbols);
-  if (!header.subarray(0, 4).equals(MAGIC)) {
-    // A false preamble lock should not poison the stream forever.
-    return { status: "no-preamble" };
-  }
+  if (!header.subarray(0, 4).equals(MAGIC)) return { status: "no-preamble" };
   const frameLength = header.readUInt32BE(4);
   if (frameLength < 1 || frameLength > maxFrameBytes) throw new Error("Acoustic frame size limit");
 
@@ -230,11 +206,13 @@ function tryDecodeAdaptive(
   const actual = crc32(packet.subarray(0, packet.length - 4));
   if (expected !== actual) throw new Error("Acoustic CRC mismatch after clock recovery");
 
+  const totalSymbols = profile.preamble.length + 32 + remainingSymbols;
+  const observedSamplesPerSymbol = (cursor - lock.start) / totalSymbols;
   const diagnostics: AcousticClockDiagnostics = {
     preambleStartSample: lock.start,
     nominalSamplesPerSymbol: nominal,
-    estimatedSamplesPerSymbol: lock.samplesPerSymbol,
-    estimatedClockDriftPpm: ((lock.samplesPerSymbol / nominal) - 1) * 1_000_000,
+    estimatedSamplesPerSymbol: observedSamplesPerSymbol,
+    estimatedClockDriftPpm: ((observedSamplesPerSymbol / nominal) - 1) * 1_000_000,
     preambleMatches: lock.matches,
     preambleSymbols: profile.preamble.length,
   };
@@ -243,34 +221,23 @@ function tryDecodeAdaptive(
     value: {
       frame: Buffer.from(packet.subarray(8, 8 + frameLength)),
       diagnostics,
-      consumedSamples: Math.ceil(cursor + nominal * 0.25),
+      consumedSamples: Math.ceil(cursor),
     },
   };
 }
 
-function acquireClockLock(
-  samples: Int16Array,
-  profile: AcousticProfile,
-  options: AcousticClockRecoveryOptions,
-): ClockLock | undefined {
+function acquireClockLock(samples: Int16Array, profile: AcousticProfile, options: AcousticClockRecoveryOptions): ClockLock | undefined {
   const nominal = profile.sampleRate * profile.symbolMs / 1000;
   const maxDriftPpm = options.maxClockDriftPpm ?? 10_000;
   const stepPpm = options.clockSearchStepPpm ?? 250;
-  if (!Number.isFinite(maxDriftPpm) || maxDriftPpm < 0 || maxDriftPpm > 50_000) {
-    throw new Error("Invalid acoustic clock drift limit");
-  }
-  if (!Number.isFinite(stepPpm) || stepPpm <= 0 || stepPpm > Math.max(1, maxDriftPpm || 1)) {
-    throw new Error("Invalid acoustic clock search step");
-  }
+  if (!Number.isFinite(maxDriftPpm) || maxDriftPpm < 0 || maxDriftPpm > 50_000) throw new Error("Invalid acoustic clock drift limit");
+  if (!Number.isFinite(stepPpm) || stepPpm <= 0 || stepPpm > Math.max(1, maxDriftPpm || 1)) throw new Error("Invalid acoustic clock search step");
 
   const searchSamples = Math.min(
     samples.length - Math.ceil(profile.preamble.length * nominal * (1 + maxDriftPpm / 1_000_000)),
     Math.ceil(profile.sampleRate * (options.preambleSearchSeconds ?? 2)),
   );
   if (searchSamples < 0) return undefined;
-
-  // Coarse synchronization at nominal clock. The short preamble is tolerant of
-  // the drift we later estimate precisely.
   const coarseStride = Math.max(1, Math.round(nominal / 16));
   let coarseStart = -1;
   let coarseMatches = -1;
@@ -281,10 +248,7 @@ function acquireClockLock(
       if (!decision) break;
       if (decision.symbol === profile.preamble[i]) matches++;
     }
-    if (matches > coarseMatches) {
-      coarseMatches = matches;
-      coarseStart = offset;
-    }
+    if (matches > coarseMatches) { coarseMatches = matches; coarseStart = offset; }
     if (matches === profile.preamble.length) break;
   }
   if (coarseStart < 0 || coarseMatches < Math.floor(profile.preamble.length * 0.7)) return undefined;
@@ -303,84 +267,50 @@ function acquireClockLock(
       let valid = true;
       for (let i = 0; i < profile.preamble.length; i++) {
         const decision = decideSymbol(samples, offset + i * samplesPerSymbol, samplesPerSymbol, profile, 0);
-        if (!decision) {
-          valid = false;
-          break;
-        }
-        if (decision.symbol === profile.preamble[i]) {
-          matches++;
-          quality += decision.quality;
-        } else {
-          quality -= 0.5;
-        }
+        if (!decision) { valid = false; break; }
+        if (decision.symbol === profile.preamble[i]) { matches++; quality += decision.quality; }
+        else quality -= 0.5;
       }
       if (!valid) continue;
       const score = matches * 10 + quality;
-      if (!best || score > best.score) {
-        best = { lock: { start: offset, samplesPerSymbol, matches }, score };
-      }
+      if (!best || score > best.score) best = { lock: { start: offset, samplesPerSymbol, matches }, score };
     }
   }
-
   if (!best || best.lock.matches < Math.floor(profile.preamble.length * 0.9)) return undefined;
   return best.lock;
 }
 
-function decodeAdaptiveSymbols(
-  samples: Int16Array,
-  initialCursor: number,
-  count: number,
-  profile: AcousticProfile,
-  samplesPerSymbol: number,
-  timingSearch: number,
-): { symbols: number[]; cursor: number } | undefined {
+function decodeAdaptiveSymbols(samples: Int16Array, initialCursor: number, count: number, profile: AcousticProfile, samplesPerSymbol: number, timingSearch: number): { symbols: number[]; cursor: number } | undefined {
   const symbols = new Array<number>(count);
   let cursor = initialCursor;
   for (let i = 0; i < count; i++) {
     const decision = decideSymbol(samples, cursor, samplesPerSymbol, profile, timingSearch);
     if (!decision) return undefined;
     symbols[i] = decision.symbol;
-    // Early/late timing recovery: follow the locally strongest symbol boundary
-    // instead of accumulating a fixed rounding error for the whole packet.
     cursor = decision.start + samplesPerSymbol;
   }
   return { symbols, cursor };
 }
 
-function decideSymbol(
-  samples: Int16Array,
-  predictedStart: number,
-  samplesPerSymbol: number,
-  profile: AcousticProfile,
-  searchRadius: number,
-): SymbolDecision | undefined {
+function decideSymbol(samples: Int16Array, predictedStart: number, samplesPerSymbol: number, profile: AcousticProfile, searchRadius: number): SymbolDecision | undefined {
   const guard = Math.max(1, Math.round(samplesPerSymbol * 0.1));
   const window = Math.max(32, Math.round(samplesPerSymbol) - guard * 2);
   let bestDecision: SymbolDecision | undefined;
   const base = Math.round(predictedStart);
-
   for (let timing = -searchRadius; timing <= searchRadius; timing++) {
     const start = base + timing;
     const analysisStart = start + guard;
     if (analysisStart < 0 || analysisStart + window > samples.length) continue;
-
     let bestSymbol = 0;
     let bestPower = -Infinity;
     let secondPower = -Infinity;
     for (let symbol = 0; symbol < 4; symbol++) {
       const power = goertzelPower(samples, analysisStart, window, profile.frequencies[symbol], profile.sampleRate);
-      if (power > bestPower) {
-        secondPower = bestPower;
-        bestPower = power;
-        bestSymbol = symbol;
-      } else if (power > secondPower) {
-        secondPower = power;
-      }
+      if (power > bestPower) { secondPower = bestPower; bestPower = power; bestSymbol = symbol; }
+      else if (power > secondPower) secondPower = power;
     }
     const quality = bestPower > 0 ? Math.max(0, (bestPower - Math.max(0, secondPower)) / bestPower) : 0;
-    if (!bestDecision || quality > bestDecision.quality) {
-      bestDecision = { symbol: bestSymbol, start, quality };
-    }
+    if (!bestDecision || quality > bestDecision.quality) bestDecision = { symbol: bestSymbol, start, quality };
   }
   return bestDecision;
 }
@@ -389,11 +319,7 @@ class StreamingLinearResampler {
   private tail = new Int16Array(0);
   private position = 0;
   private readonly step: number;
-
-  constructor(readonly inputRate: number, readonly outputRate: number) {
-    this.step = inputRate / outputRate;
-  }
-
+  constructor(readonly inputRate: number, readonly outputRate: number) { this.step = inputRate / outputRate; }
   push(input: Int16Array): Int16Array {
     if (!input.length) return new Int16Array(0);
     if (this.inputRate === this.outputRate && !this.tail.length) return input.slice();
@@ -411,11 +337,7 @@ class StreamingLinearResampler {
     this.position = p - consumed;
     return Int16Array.from(output);
   }
-
-  reset(): void {
-    this.tail = new Int16Array(0);
-    this.position = 0;
-  }
+  reset(): void { this.tail = new Int16Array(0); this.position = 0; }
 }
 
 function validateProfile(profile: AcousticProfile): AcousticProfile {
@@ -431,9 +353,7 @@ function concatInt16(a: Int16Array, b: Int16Array): Int16Array {
   if (!a.length) return b.slice();
   if (!b.length) return a.slice();
   const output = new Int16Array(a.length + b.length);
-  output.set(a, 0);
-  output.set(b, a.length);
-  return output;
+  output.set(a, 0); output.set(b, a.length); return output;
 }
 
 function symbolsToBytes(symbols: readonly number[]): Buffer {
@@ -446,32 +366,19 @@ function symbolsToBytes(symbols: readonly number[]): Buffer {
   return output;
 }
 
-function goertzelPower(
-  samples: Int16Array,
-  start: number,
-  count: number,
-  frequency: number,
-  sampleRate: number,
-): number {
+function goertzelPower(samples: Int16Array, start: number, count: number, frequency: number, sampleRate: number): number {
   const omega = 2 * Math.PI * frequency / sampleRate;
   const coefficient = 2 * Math.cos(omega);
-  let s0 = 0;
-  let s1 = 0;
-  let s2 = 0;
+  let s0 = 0, s1 = 0, s2 = 0;
   for (let i = 0; i < count; i++) {
     const x = samples[start + i] / 32768;
-    s0 = x + coefficient * s1 - s2;
-    s2 = s1;
-    s1 = s0;
+    s0 = x + coefficient * s1 - s2; s2 = s1; s1 = s0;
   }
   return s1 * s1 + s2 * s2 - coefficient * s1 * s2;
 }
 
 function crc32(data: Uint8Array): number {
   let crc = 0xffffffff;
-  for (const byte of data) {
-    crc ^= byte;
-    for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-  }
+  for (const byte of data) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)); }
   return (crc ^ 0xffffffff) >>> 0;
 }
