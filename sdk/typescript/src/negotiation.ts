@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, type KeyObject } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual, type KeyObject } from "node:crypto";
 import {
   b64,
   canonicalJson,
@@ -8,6 +8,7 @@ import {
   hmacSha256,
   sha256,
   sharedSecret,
+  unb64,
 } from "./crypto.js";
 import type {
   HandshakeHello,
@@ -142,11 +143,9 @@ export function finishHandshake(
 }
 
 export function verifyConfirmation(local: NegotiatedSession, remoteTag: string): void {
-  const a = Buffer.from(local.confirmationTag);
-  const b = Buffer.from(remoteTag);
-  if (a.length !== b.length || !createHmac("sha256", local.context.keys.confirmKey).update(a).digest().equals(
-    createHmac("sha256", local.context.keys.confirmKey).update(b).digest(),
-  )) {
+  const expected = unb64(local.confirmationTag);
+  const actual = unb64(remoteTag);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     throw new Error("Handshake confirmation mismatch");
   }
 }
