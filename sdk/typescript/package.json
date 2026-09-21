@@ -1,6 +1,6 @@
 {
   "name": "@vaml/runtime",
-  "version": "0.2.3-experimental",
+  "version": "0.2.4-experimental",
   "private": true,
   "description": "Reference TypeScript runtime for VAML 0.2 opaque agent communication",
   "type": "module",
@@ -13,6 +13,7 @@
     "pack": "tsx tools/build-private-lexicon.ts",
     "world-pack": "tsx tools/build-world-lexicon.ts",
     "corpus-pack": "tsx tools/build-world-semantic-corpus.ts",
+    "private-corpus-run": "tsx tools/run-private-corpus-build.ts",
     "privacy": "tsx tools/privacy-lint.ts ../..",
     "test": "node --import tsx --test test/*.test.ts",
     "check": "npm run privacy && npm run build && npm test"
