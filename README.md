@@ -1,67 +1,121 @@
 # VAML — Vynalth Agent Machine Language
 
-VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.1-experimental` adds a streaming world-lexicon ingestion layer and an opaque agent-learning layer while keeping the VAML 0.2 wire format compatible.
+VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.2-experimental` adds the **VAML World Semantic Corpus 0.1** pipeline while remaining wire-compatible with VAML 0.2.
 
 VAML deliberately avoids a public `word -> opcode` dictionary. Production agents communicate through private concept identities, session-local opaque codes, typed binary fields, and authenticated encryption.
 
 ## Architecture
 
 ```text
-private multilingual lexical / semantic sources
-                ↓
-      WorldConceptAssembler (streaming)
-                ↓
-       encrypted vocabulary shards
-                ↓
-       PrivateSemanticIndex
-                ↓
-       AgentSemanticLearner
-                ↓
-      internal private concept state
-                ↓
-       ephemeral peer negotiation
-                ↓
-        session-local 64-bit codes
-                ↓
-      AES-256-GCM VAML frames
-                ↓
-              peer agent
+private dictionaries / entities / terminology / model semantics
+                         ↓
+             private source registry
+                         ↓
+           source-specific normalization
+                         ↓
+         cross-source semantic alignment
+                         ↓
+       sorted private CorpusRow stream
+                         ↓
+       WorldSemanticCorpusAssembler
+                         ↓
+           encrypted vocab shards
+                         ↓
+            PrivateSemanticIndex
+                         ↓
+            AgentSemanticLearner
+                         ↓
+          internal private concepts
+                         ↓
+           ephemeral peer negotiation
+                         ↓
+           session-local 64-bit codes
+                         ↓
+             encrypted VAML frames
+                         ↓
+                    peer agent
 ```
 
 The same private concept receives a fresh wire code in a fresh session.
 
-## “Almost all words in the world” without publishing a readable dictionary
+## World Semantic Corpus
 
-VAML treats **words as aliases** and **meanings as concepts**. A deployment can privately ingest very large multilingual sources, morphology, named entities, scientific terminology, programming concepts, organization terminology, and model-native unlabeled concepts.
+The corpus layer is designed to combine many private or properly licensed sources into one concept space without publishing a readable dictionary in this repository.
 
-The repository does **not** contain the real production lexemes. Instead it contains a scalable ingestion/compiler pipeline. Private input is grouped by a cross-lingual `conceptKey`, streamed into concept records, HMAC-derived into private concept identities, and encrypted into configurable shards.
+Supported source classes include:
 
-Default capacity is 50,000 concepts per shard. The protocol does not cap the shard count, so deployments can scale from thousands to millions or more concepts without changing the wire format.
+- multilingual dictionaries and lexical knowledge bases;
+- morphology and inflection data;
+- named entities and encyclopedic concepts;
+- science, mathematics, medicine, engineering and other terminology;
+- programming languages, APIs and technical ontologies;
+- organization-private vocabulary;
+- model-generated semantic structures;
+- **agent-native concepts with no required human-language word**.
 
-See `spec/WORLD-LEXICON-0.2.md`.
+Words remain edge aliases. Meanings are private concepts.
 
-## Agent learning
+The public repository contains the compiler, schema, validation, privacy guard and synthetic tests. Real corpus rows, source registries, alignment maps, decrypted packs and production keys stay outside Git history.
 
-`AgentSemanticLearner` lets an authorized agent learn over a decrypted `PrivateSemanticIndex` without keeping human labels as its native protocol state. It can resolve exact private concepts, private edge aliases, and embeddings; record concept exposure; learn concept-to-concept associations; and persist opaque learning snapshots.
+See `spec/WORLD-SEMANTIC-CORPUS-0.1.md`.
 
-See `spec/AGENT-LEARNING-0.2.md`.
+## Why there is no giant public list of “all words”
+
+A public table such as:
+
+```text
+search -> 0x1234
+cat    -> 0x1235
+危险   -> 0x1236
+```
+
+would be directly readable and statistically learnable by humans. It would also fail to represent polysemy, multilingual synonymy, entities, latent concepts and concepts that have no word at all.
+
+VAML instead uses private cross-source sense alignment, encrypted concept packs, optional embeddings and relations, HMAC-derived private identities, and fresh session-local wire codes.
+
+## Agent-native concepts
+
+A corpus row can be `kind: "agent-native"`. Such a concept may contain a latent prototype, relations, domains and private semantic evidence without containing any lexical alias.
+
+This allows compatible agents to develop semantic units that are not required to be named in English, Chinese or any other human language.
+
+It does **not** create a mathematical guarantee that a human controlling the authorized runtime, keys, model memory and debugger can never reverse engineer meaning.
+
+## Scale
+
+Corpus input is grouped and sorted by a private `alignmentKey`. The assembler streams one concept group at a time instead of loading the entire corpus into memory.
+
+The default output shard contains 50,000 concepts. There is no protocol-level shard-count limit.
+
+Capacity examples:
+
+```text
+20 shards       ≈ 1,000,000 concepts
+200 shards      ≈ 10,000,000 concepts
+2,000 shards    ≈ 100,000,000 concepts
+```
+
+These numbers describe capacity, not corpus content bundled with this repository.
 
 ## Repository layout
 
 ```text
-AGENTS.md                                      Agent loading/learning contract
-vaml.manifest.json                            Machine entrypoint
-spec/VAML-0.2.md                              Wire protocol
-spec/VOCABULARY-0.2.md                        Private vocabulary architecture
-spec/WORLD-LEXICON-0.2.md                     Massive multilingual ingestion design
-spec/AGENT-LEARNING-0.2.md                    Agent learning model
-sdk/typescript/src/world-lexicon.ts            Streaming concept assembler
-sdk/typescript/src/learning.ts                 Opaque learner
-sdk/typescript/src/semantic-index.ts           Private semantic index
-sdk/typescript/tools/build-world-lexicon.ts    Encrypted world-lexicon shard builder
-sdk/typescript/tools/privacy-lint.ts           Public-repository leakage guard
-sdk/typescript/examples/agent-pair-demo.ts     Agent A <-> Agent B demo
-sdk/typescript/test/                           Runtime and world-lexicon tests
+AGENTS.md                                           Agent loading/learning contract
+vaml.manifest.json                                 Machine entrypoint
+spec/VAML-0.2.md                                   Wire protocol
+spec/VOCABULARY-0.2.md                             Private vocabulary architecture
+spec/WORLD-LEXICON-0.2.md                          Large multilingual lexicon layer
+spec/WORLD-SEMANTIC-CORPUS-0.1.md                  Multi-source private corpus architecture
+spec/AGENT-LEARNING-0.2.md                         Agent learning model
+sdk/typescript/src/corpus.ts                       Streaming corpus assembler + provenance
+sdk/typescript/src/world-lexicon.ts                Streaming lexical assembler
+sdk/typescript/src/learning.ts                     Opaque learner
+sdk/typescript/src/semantic-index.ts               Private semantic index
+sdk/typescript/tools/build-world-semantic-corpus.ts Corpus -> encrypted shard builder
+sdk/typescript/tools/build-world-lexicon.ts         World lexicon shard builder
+sdk/typescript/tools/privacy-lint.ts                Public-repository leakage guard
+sdk/typescript/test/corpus.test.ts                  Synthetic corpus tests
+sdk/typescript/examples/agent-pair-demo.ts          Agent A <-> Agent B demo
 ```
 
 ## Quick start
@@ -73,49 +127,38 @@ npm run check
 npm run demo
 ```
 
-Build ordinary private concept shards:
+Build a private world semantic corpus:
 
 ```bash
 VAML_SEMANTIC_KEY=<base64url-32-byte-secret> \
 VAML_PACK_KEY=<base64url-32-byte-secret> \
-npm run pack -- /secure/private.jsonl /secure/out/vocab
+npm run corpus-pack -- \
+  /secure/corpus.sources.json \
+  /secure/corpus.sorted.jsonl \
+  /secure/out/world-corpus \
+  50000
 ```
 
-Build a very large private multilingual world lexicon. Input must be grouped and sorted by private `conceptKey`:
+Input rows must be grouped and sorted by private `alignmentKey`. The source manifest must register every source and its license/redistribution policy.
+
+Outputs are encrypted `.vocab.json` shards plus a private corpus manifest. Do not commit those artifacts.
+
+## Privacy guard
+
+Run:
 
 ```bash
-VAML_SEMANTIC_KEY=<base64url-32-byte-secret> \
-VAML_PACK_KEY=<base64url-32-byte-secret> \
-npm run world-pack -- /secure/world.sorted.jsonl /secure/out/world 50000
+npm run privacy
 ```
 
-Never commit production source lexicons, decrypted packs, or keys. `.gitignore` and `npm run privacy` are designed to fail if common private artifacts or fixed public word/opcode tables appear in the repository.
-
-## Why no public complete vocabulary table?
-
-Because a public table such as `search = 0x1234` is just a substitution dictionary. Humans can read or reverse it, and the mapping becomes stable across sessions.
-
-VAML instead uses:
-
-- private encrypted concept packs;
-- optional model embeddings and semantic records;
-- HMAC-derived private concept identities;
-- ephemeral X25519 peer negotiation;
-- HKDF-SHA256 session keys;
-- fresh HMAC-derived 64-bit session codes;
-- AES-256-GCM frame encryption;
-- sequence-based replay protection.
-
-## Privacy modes
-
-`debug` may render semantics locally for development. `opaque` hides semantics on the wire and in ordinary telemetry. `sealed` additionally avoids ordinary semantic logging and minimizes persistence of decrypted semantic material.
+The guard rejects common private corpus/lexicon paths, corpus JSONL/manifests, vocabulary packs, keys and obvious fixed public word/opcode registries.
 
 ## Security boundary
 
-VAML can keep the production semantic mapping out of a public repository and out of network captures. It cannot mathematically guarantee that a human with full control of the authorized model process, debugger, memory, and decryption keys will never recover meaning.
+VAML can keep production semantic mappings out of a public repository, out of ordinary logs, and out of passive network captures. It cannot truthfully guarantee that meaning is forever unknowable to a human with complete control of the authorized model process and secrets.
 
-The accurate goal is **opaque-by-default agent communication**, not a false promise of absolute human incomprehensibility.
+The target is **opaque-by-default agent communication and private machine semantics**.
 
 ## Status
 
-**VAML 0.2.1 — experimental runtime; VAML 0.2 wire-compatible.**
+**VAML 0.2.2 experimental runtime · VAML 0.2 wire-compatible · World Semantic Corpus 0.1.**

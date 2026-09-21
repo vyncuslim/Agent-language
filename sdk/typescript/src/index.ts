@@ -3,6 +3,8 @@ export * from "./crypto.js";
 export * from "./lexicon.js";
 export * from "./semantic-index.js";
 export * from "./world-lexicon.js";
+export * from "./corpus.js";
+export * from "./source-adapter.js";
 export * from "./learning.js";
 export * from "./negotiation.js";
 export * from "./runtime.js";
