@@ -15,6 +15,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "demo": "node dist/examples/agent-pair-demo.js",
     "demo:agents": "node dist/examples/autonomous-agent-pair.js",
+    "demo:audio": "node dist/examples/acoustic-frame-demo.js",
     "vaml": "node dist/src/cli.js",
     "pack": "tsx tools/build-private-lexicon.ts",
     "pack:world": "tsx tools/build-world-lexicon.ts",
