@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vaml.invalid/schema/private-alignment-manifest-0.1.schema.json",
+  "title": "VAML Private Alignment Manifest 0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "prefixChars", "shards"],
+  "properties": {
+    "format": { "const": "vaml-private-alignment-manifest" },
+    "version": { "const": "0.1" },
+    "prefixChars": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "shards": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 65536,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "sha256"],
+        "properties": {
+          "file": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+        }
+      }
+    }
+  }
+}
