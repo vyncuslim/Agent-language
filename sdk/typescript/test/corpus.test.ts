@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   WorldSemanticCorpusAssembler,
+  conceptId,
   readCorpusSourceAdapter,
   type CorpusSourceAdapter,
   type CorpusSourceDescriptor,
@@ -65,6 +66,36 @@ test("corpus assembler merges multilingual aliases into one private concept", ()
   assert.deepEqual(concept.embedding, [1, 0]);
   assert.equal(assembler.stats().concepts, 1);
   assert.equal(assembler.stats().languages, 2);
+});
+
+test("corpus concept identity survives domain and evidence enrichment", () => {
+  const first = new WorldSemanticCorpusAssembler(sources);
+  first.push({
+    kind: "lexeme",
+    alignmentKey: "private:stable:0001",
+    sourceId: "source-a",
+    language: "en",
+    lexeme: "synthetic-stable",
+    domains: ["domain-a"],
+    semanticEvidence: { revision: 1 },
+  });
+
+  const second = new WorldSemanticCorpusAssembler(sources);
+  second.push({
+    kind: "lexeme",
+    alignmentKey: "private:stable:0001",
+    sourceId: "source-a",
+    language: "en",
+    lexeme: "synthetic-stable",
+    domains: ["domain-a", "domain-b"],
+    semanticEvidence: { revision: 2, enriched: true },
+  });
+
+  const a = first.finish();
+  const b = second.finish();
+  assert.ok(a && b);
+  const key = Buffer.alloc(32, 7);
+  assert.equal(conceptId(key, a), conceptId(key, b));
 });
 
 test("agent-native concepts need no human-language alias", () => {
