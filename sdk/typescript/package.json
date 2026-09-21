@@ -3,6 +3,11 @@
   "version": "0.2.4-experimental",
   "private": true,
   "description": "Opaque machine semantic Agent-to-Agent runtime",
+  "license": "Apache-2.0",
+  "vamlRuntimeAudience": "authorized-ai-agents-only",
+  "support": {
+    "email": "admin@sleepsomno.com"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"
