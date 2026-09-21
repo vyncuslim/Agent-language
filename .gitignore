@@ -2,9 +2,17 @@
 private-lexicon/
 private-vocab/
 world-lexicon/
+private-corpus/
+corpus-private/
+alignment-map/
 *.private.jsonl
 *.world.jsonl
 *.world.sorted.jsonl
+*.corpus.jsonl
+*.corpus.sorted.jsonl
+*.corpus.manifest.json
+*.sources.private.json
+*.alignment.private.json
 *.vocab.json
 *.vocab.key
 *.semantic.key
