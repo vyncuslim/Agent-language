@@ -1,0 +1,20 @@
+{
+  "name": "@vaml/runtime",
+  "version": "0.2.0-experimental",
+  "private": true,
+  "description": "Reference TypeScript runtime for VAML 0.2 opaque agent communication",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo": "tsx examples/agent-pair-demo.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
