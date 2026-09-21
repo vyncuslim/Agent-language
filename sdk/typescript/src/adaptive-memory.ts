@@ -65,8 +65,8 @@ const DEFAULT_POLICY: AdaptiveLearningPolicy = {
  * Mutable, runtime-local semantic overlay for agent-native learning.
  *
  * It never changes protocol code, keys, authorization policy or the immutable
- * base vocabulary. New concepts stay in this private overlay until promoted by
- * evidence thresholds. Human labels are intentionally not stored here.
+ * base vocabulary. New concepts stay private to this overlay until promotion
+ * thresholds are met. Human labels are intentionally not stored here.
  */
 export class AdaptiveSemanticMemory implements SemanticResolver {
   private readonly learned = new Map<string, LearnedConceptState>();
@@ -84,28 +84,27 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
     this.validatePolicy();
   }
 
+  /** Internal learning lookup. Includes candidates that are not promoted yet. */
   get(conceptId: string): CompiledConceptRecord | undefined {
     const existing = this.base.get(conceptId);
     if (existing) return existing;
     const state = this.learned.get(conceptId);
-    if (!state) return undefined;
-    return {
-      conceptId,
-      semantic: {
-        kind: "agent-native",
-        prototype: state.prototype,
-        relatedConceptIds: state.relatedConceptIds,
-        confidence: state.confidence,
-      },
-      domains: state.domain ? [state.domain] : [],
-      embedding: state.prototype ? [...state.prototype] : undefined,
-      metadata: {
-        learned: true,
-        promoted: state.promoted,
-        exposure: state.exposure,
-        evidenceDigests: [...state.evidenceDigests],
-      },
-    };
+    return state ? this.recordFor(state) : undefined;
+  }
+
+  /** Network authorization surface: unpromoted learned concepts stay local. */
+  has(conceptId: string): boolean {
+    if (this.base.get(conceptId)) return true;
+    return this.learned.get(conceptId)?.promoted === true;
+  }
+
+  /** Semantic surface compatible with NetworkConfig. */
+  semantic(conceptId: string): unknown {
+    const base = this.base.get(conceptId);
+    if (base) return base.semantic;
+    const state = this.learned.get(conceptId);
+    if (!state || !state.promoted) throw new Error("Unknown or unpromoted private concept");
+    return this.recordFor(state).semantic;
   }
 
   resolveAlias(language: string, lexeme: string): string[] {
@@ -116,7 +115,9 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
     this.validateVector(vector);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid nearest limit");
     const merged = new Map<string, number>();
-    for (const candidate of this.base.nearest(vector, limit * 2)) merged.set(candidate.conceptId, candidate.score);
+    for (const candidate of this.base.nearest(vector, Math.min(100, limit * 2))) {
+      merged.set(candidate.conceptId, candidate.score);
+    }
     for (const state of this.learned.values()) {
       if (!state.prototype || state.prototype.length !== vector.length) continue;
       const score = cosine(vector, state.prototype);
@@ -218,6 +219,7 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
       throw new Error("Unsupported adaptive memory snapshot");
     }
     if (snapshot.concepts.length > this.policy.maxLearnedConcepts) throw new Error("Learned concept limit reached");
+
     const replacement = new Map<string, LearnedConceptState>();
     for (const raw of snapshot.concepts) {
       const state = structuredClone(raw);
@@ -226,10 +228,16 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
       if (state.prototype) this.validateVector(state.prototype);
       if (!Number.isFinite(state.exposure) || state.exposure <= 0) throw new Error("Invalid learned exposure");
       if (!Number.isFinite(state.confidence) || state.confidence < 0 || state.confidence > 1) throw new Error("Invalid learned confidence");
-      state.relatedConceptIds = this.validateRelated(state.relatedConceptIds);
+      if (typeof state.promoted !== "boolean") throw new Error("Invalid learned promotion state");
       state.evidenceDigests = [...new Set(state.evidenceDigests ?? [])].sort();
       replacement.set(state.conceptId, state);
     }
+
+    const stagedIds = new Set(replacement.keys());
+    for (const state of replacement.values()) {
+      state.relatedConceptIds = this.validateRelated(state.relatedConceptIds, stagedIds);
+    }
+
     this.learned.clear();
     for (const [id, state] of replacement) this.learned.set(id, state);
   }
@@ -241,6 +249,26 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
   close(): void {
     this.learningKey.fill(0);
     this.learned.clear();
+  }
+
+  private recordFor(state: LearnedConceptState): CompiledConceptRecord {
+    return {
+      conceptId: state.conceptId,
+      semantic: {
+        kind: "agent-native",
+        prototype: state.prototype,
+        relatedConceptIds: state.relatedConceptIds,
+        confidence: state.confidence,
+      },
+      domains: state.domain ? [state.domain] : [],
+      embedding: state.prototype ? [...state.prototype] : undefined,
+      metadata: {
+        learned: true,
+        promoted: state.promoted,
+        exposure: state.exposure,
+        evidenceDigests: [...state.evidenceDigests],
+      },
+    };
   }
 
   private updateState(state: LearnedConceptState, experience: LearningExperience, weight: number): void {
@@ -255,10 +283,17 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
         }
       } else throw new Error("Prototype dimension mismatch");
     }
-    if (experience.outcome === "positive") state.confidence += (1 - state.confidence) * this.policy.learningRate * Math.min(1, weight);
-    if (experience.outcome === "negative") state.confidence -= state.confidence * this.policy.negativePenalty * Math.min(1, weight);
+    if (experience.outcome === "positive") {
+      state.confidence += (1 - state.confidence) * this.policy.learningRate * Math.min(1, weight);
+    }
+    if (experience.outcome === "negative") {
+      state.confidence -= state.confidence * this.policy.negativePenalty * Math.min(1, weight);
+    }
     state.confidence = Math.max(0, Math.min(1, state.confidence));
-    state.relatedConceptIds = [...new Set([...state.relatedConceptIds, ...this.validateRelated(experience.relatedConceptIds)])].sort();
+    state.relatedConceptIds = [...new Set([
+      ...state.relatedConceptIds,
+      ...this.validateRelated(experience.relatedConceptIds),
+    ])].sort();
     const evidence = normalizeEvidence(experience.evidenceDigest);
     state.evidenceDigests = [...new Set([...state.evidenceDigests, ...evidence])].sort();
     state.domain = normalizeOptional(experience.domain) ?? state.domain;
@@ -299,10 +334,14 @@ export class AdaptiveSemanticMemory implements SemanticResolver {
     }
   }
 
-  private validateRelated(ids: string[] | undefined): string[] {
+  private validateRelated(ids: string[] | undefined, stagedIds?: Set<string>): string[] {
     const output = [...new Set(ids ?? [])].sort();
     if (output.length > 256) throw new Error("Too many related concepts");
-    for (const id of output) if (!this.get(id)) throw new Error("Unknown related concept");
+    for (const id of output) {
+      if (!this.base.get(id) && !this.learned.has(id) && !stagedIds?.has(id)) {
+        throw new Error("Unknown related concept");
+      }
+    }
     return output;
   }
 
