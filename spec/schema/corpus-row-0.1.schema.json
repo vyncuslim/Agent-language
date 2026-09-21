@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vynalthai.com/vaml/schema/corpus-row-0.1.schema.json",
+  "title": "VAML World Semantic Corpus Row 0.1",
+  "oneOf": [
+    { "$ref": "#/$defs/lexeme" },
+    { "$ref": "#/$defs/agentNative" }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["kind", "alignmentKey", "sourceId"],
+      "properties": {
+        "kind": { "type": "string" },
+        "alignmentKey": { "type": "string", "minLength": 1 },
+        "sourceId": { "type": "string", "minLength": 1 },
+        "sourceSenseId": { "type": "string", "minLength": 1 },
+        "domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "relations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "semanticEvidence": {},
+        "embedding": {
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "embeddingSpace": { "type": "string", "minLength": 1 },
+        "metadata": { "type": "object" }
+      }
+    },
+    "lexeme": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "alignmentKey", "sourceId", "language", "lexeme"],
+          "properties": {
+            "kind": { "const": "lexeme" },
+            "alignmentKey": { "type": "string", "minLength": 1 },
+            "sourceId": { "type": "string", "minLength": 1 },
+            "sourceSenseId": { "type": "string" },
+            "language": { "type": "string", "minLength": 1 },
+            "lexeme": { "type": "string", "minLength": 1 },
+            "aliases": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "domains": { "type": "array", "items": { "type": "string" } },
+            "relations": { "type": "object" },
+            "semanticEvidence": {},
+            "embedding": { "type": "array", "items": { "type": "number" } },
+            "embeddingSpace": { "type": "string" },
+            "metadata": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "agentNative": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "alignmentKey", "sourceId"],
+          "properties": {
+            "kind": { "const": "agent-native" },
+            "alignmentKey": { "type": "string", "minLength": 1 },
+            "sourceId": { "type": "string", "minLength": 1 },
+            "sourceSenseId": { "type": "string" },
+            "prototype": { "type": "array", "items": { "type": "number" } },
+            "domains": { "type": "array", "items": { "type": "string" } },
+            "relations": { "type": "object" },
+            "semanticEvidence": {},
+            "embedding": { "type": "array", "items": { "type": "number" } },
+            "embeddingSpace": { "type": "string" },
+            "metadata": { "type": "object" }
+          }
+        }
+      ]
+    }
+  }
+}
