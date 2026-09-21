@@ -15,6 +15,7 @@ const forbiddenFilePatterns: RegExp[] = [
   /\.world(?:\.sorted)?\.jsonl$/i,
   /\.corpus(?:\.sorted)?\.jsonl$/i,
   /\.corpus\.manifest\.json$/i,
+  /\.corpus\.sources\.json$/i,
   /\.sources\.private\.json$/i,
   /\.alignment\.private\.json$/i,
   /\.vocab\.json$/i,
