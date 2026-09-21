@@ -11,6 +11,7 @@ alignment-map/
 *.corpus.jsonl
 *.corpus.sorted.jsonl
 *.corpus.manifest.json
+*.corpus.sources.json
 *.sources.private.json
 *.alignment.private.json
 *.vocab.json
