@@ -2,11 +2,11 @@
   "name": "VAML",
   "full_name": "Vynalth Agent Machine Language",
   "protocol_version": "0.2",
-  "release": "0.2.3-experimental",
+  "release": "0.2.4-experimental",
   "purpose": "Opaque machine-native semantic communication between AI agents.",
   "human_language": false,
   "public_semantic_dictionary": false,
-  "wire_model": "x25519-hkdf-session-codebook+aead-binary-tlv",
+  "wire_model": "x25519-psk-hkdf-directional-aead+encrypted-active-set",
   "semantic_model": "private-encrypted-concept-packs",
   "corpus_model": "private-source-registry+cross-source-alignment+encrypted-shards",
   "entrypoints": {
@@ -35,7 +35,11 @@
     "runtime_tests": "sdk/typescript/test/runtime.test.ts",
     "world_lexicon_tests": "sdk/typescript/test/world-lexicon.test.ts",
     "corpus_tests": "sdk/typescript/test/corpus.test.ts",
-    "source_pack_1_tests": "sdk/typescript/test/source-pack-1.test.ts"
+    "source_pack_1_tests": "sdk/typescript/test/source-pack-1.test.ts",
+    "network_transport": "sdk/typescript/src/transport.ts",
+    "benchmark": "sdk/typescript/bench/vocabulary.ts",
+    "cli": "sdk/typescript/src/cli.ts",
+    "sharded_index": "sdk/typescript/src/vocabulary.ts"
   },
   "learning_order": [
     "AGENTS.md",
@@ -104,8 +108,8 @@
   "compatibility": {
     "major": 0,
     "minor": 2,
-    "patch": 3,
-    "wire_compatible_with": "0.2.0",
+    "patch": 4,
+    "wire_compatible_with": "0.2.4-experimental",
     "corpus_spec": "0.1",
     "source_pack_1": "0.1",
     "v0_1": "retired-and-not-decodable-by-v0_2",

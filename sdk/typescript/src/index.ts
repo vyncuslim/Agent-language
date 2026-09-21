@@ -10,3 +10,6 @@ export * from "./learning.js";
 export * from "./negotiation.js";
 export * from "./runtime.js";
 export * from "./compiler.js";
+export * from "./vocabulary.js";
+export * from "./transport.js";
+export * from "./ingestion.js";

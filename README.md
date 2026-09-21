@@ -1,175 +1,100 @@
-# VAML — Vynalth Agent Machine Language
+# VAML — World Concept Space runtime
 
-VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.3-experimental` adds **Corpus Source Pack 1** on top of the VAML World Semantic Corpus while remaining wire-compatible with VAML 0.2.
+VAML 0.2 experimental is an opaque Agent-to-Agent machine semantic runtime. It is not a human language or a public word-to-opcode dictionary.
 
-VAML deliberately avoids a public `word -> opcode` dictionary. Production agents communicate through private concept identities, session-local opaque codes, typed binary fields, and authenticated encryption.
-
-## Architecture
+Public protocol rules describe binary framing, data types, negotiation and compiler behavior. Private semantic knowledge stays in authorized encrypted concept packs. Human expressions in Chinese, English, Malay, Japanese or other languages are private ingestion aliases of concepts. A surface form can have multiple senses; several expressions can share one concept.
 
 ```text
-private dictionaries / entities / terminology / model semantics
-                         ↓
-               source-pack adapters
-                         ↓
-              source candidates
-                         ↓
-             private sense aligner
-                         ↓
-            private alignmentKey
-                         ↓
-       WorldSemanticCorpusAssembler
-                         ↓
-           encrypted vocab shards
-                         ↓
-            PrivateSemanticIndex
-                         ↓
-            AgentSemanticLearner
-                         ↓
-          internal private concepts
-                         ↓
-           ephemeral peer negotiation
-                         ↓
-           session-local 64-bit codes
-                         ↓
-             encrypted VAML frames
-                         ↓
-                    peer agent
+datasets -> private ingestion / sense alignment -> CONCEPT
+        -> secret-derived concept ID -> encrypted vocabulary shards
+        -> authorized semantic index -> session-local opaque code
+        -> authenticated encrypted frame -> peer's private machine representation
 ```
 
-The same private concept receives a fresh wire code in a fresh session.
+## Run and verify
 
-## Corpus Source Pack 1
+Node.js 20+ is required; CI targets Node 24.
 
-The first concrete source pack covers five categories:
-
-- general vocabulary — Princeton WordNet 3.0 + private Wiktionary extracts;
-- morphology — UniMorph datasets with explicit per-dataset license verification;
-- entities — Wikidata structured data profile;
-- science and mathematics — Wikidata structured data profile;
-- programming/software concepts — Wikidata structured data profile.
-
-Public code contains adapters and synthetic tests only. Third-party dumps, private source registries, source-to-concept alignment maps and compiled production shards stay outside Git history.
-
-External IDs such as WordNet synsets or Wikidata QIDs are provenance identifiers. They are **not VAML opcodes**. Every source candidate must go through a private semantic aligner before becoming a corpus concept.
-
-See `spec/CORPUS-SOURCE-PACK-1.md`.
-
-## World Semantic Corpus
-
-The corpus layer is designed to combine many private or properly licensed sources into one concept space without publishing a readable dictionary in this repository.
-
-Supported source classes include multilingual dictionaries and lexical knowledge bases, morphology and inflection data, named entities, science/mathematics/engineering terminology, programming concepts, organization-private vocabulary, model-generated semantic structures, and **agent-native concepts with no required human-language word**.
-
-Words remain edge aliases. Meanings are private concepts.
-
-See `spec/WORLD-SEMANTIC-CORPUS-0.1.md`.
-
-## Why there is no giant public list of “all words”
-
-A public table such as:
-
-```text
-search -> 0x1234
-cat    -> 0x1235
-危险   -> 0x1236
-```
-
-would be directly readable and statistically learnable by humans. It would also fail to represent polysemy, multilingual synonymy, entities, latent concepts and concepts that have no word at all.
-
-VAML instead uses private cross-source sense alignment, encrypted concept packs, optional embeddings and relations, HMAC-derived private identities, and fresh session-local wire codes.
-
-## Source license discipline
-
-Source Pack 1 intentionally refuses to treat every downloadable dataset as unrestricted.
-
-WordNet usage must preserve its required license/copyright notices. Wiktionary is kept `private-only` by default until attribution/share-alike/GFDL export compliance is implemented. UniMorph datasets must declare an explicit verified license per enabled language dataset. Wikidata structured data is registered as CC0.
-
-## Agent-native concepts
-
-A corpus row can be `kind: "agent-native"`. Such a concept may contain a latent prototype, relations, domains and private semantic evidence without containing any lexical alias.
-
-This allows compatible agents to develop semantic units that are not required to be named in English, Chinese or any other human language.
-
-It does **not** create a mathematical guarantee that a human controlling the authorized runtime, keys, model memory and debugger can never reverse engineer meaning.
-
-## Scale
-
-Corpus input is grouped and sorted by a private `alignmentKey`. The assembler streams one concept group at a time instead of loading the entire corpus into memory.
-
-The default output shard contains 50,000 concepts. There is no protocol-level shard-count limit.
-
-```text
-20 shards       ≈ 1,000,000 concepts
-200 shards      ≈ 10,000,000 concepts
-2,000 shards    ≈ 100,000,000 concepts
-```
-
-These numbers describe capacity, not corpus content bundled with this repository.
-
-## Repository layout
-
-```text
-AGENTS.md                                           Agent loading/learning contract
-vaml.manifest.json                                 Machine entrypoint
-spec/VAML-0.2.md                                   Wire protocol
-spec/VOCABULARY-0.2.md                             Private vocabulary architecture
-spec/WORLD-LEXICON-0.2.md                          Large multilingual lexicon layer
-spec/WORLD-SEMANTIC-CORPUS-0.1.md                  Multi-source private corpus architecture
-spec/CORPUS-SOURCE-PACK-1.md                       First real source-ingestion profiles
-spec/AGENT-LEARNING-0.2.md                         Agent learning model
-sdk/typescript/src/corpus.ts                       Streaming corpus assembler + provenance
-sdk/typescript/src/source-adapter.ts               Source adapter boundary
-sdk/typescript/src/source-pack-1.ts                WordNet/Wiktionary/UniMorph/Wikidata adapters
-sdk/typescript/src/learning.ts                     Opaque learner
-sdk/typescript/src/semantic-index.ts               Private semantic index
-sdk/typescript/tools/build-world-semantic-corpus.ts Corpus -> encrypted shard builder
-sdk/typescript/tools/privacy-lint.ts                Public-repository leakage guard
-sdk/typescript/test/source-pack-1.test.ts           Source Pack 1 synthetic tests
-sdk/typescript/test/corpus.test.ts                  Synthetic corpus tests
-sdk/typescript/examples/agent-pair-demo.ts          Agent A <-> Agent B demo
-```
-
-## Quick start
-
-```bash
+```sh
 cd sdk/typescript
-npm install
-npm run check
+npm ci
+npm run build
+npm test
 npm run demo
-```
-
-Build a private world semantic corpus:
-
-```bash
-VAML_SEMANTIC_KEY=<base64url-32-byte-secret> \
-VAML_PACK_KEY=<base64url-32-byte-secret> \
-npm run corpus-pack -- \
-  /secure/corpus.sources.json \
-  /secure/corpus.sorted.jsonl \
-  /secure/out/world-corpus \
-  50000
-```
-
-Input rows must be grouped and sorted by private `alignmentKey`. The source manifest must register every source and its license/redistribution policy.
-
-Outputs are encrypted `.vocab.json` shards plus a private corpus manifest. Do not commit those artifacts.
-
-## Privacy guard
-
-Run:
-
-```bash
 npm run privacy
 ```
 
-The guard rejects common private corpus/lexicon/source-pack paths, alignment maps, vocabulary packs, keys and obvious fixed public word/opcode registries.
+The demo starts **two independent Node processes** over loopback TCP, generates ephemeral synthetic numeric semantics and secrets, builds encrypted packs in a temporary directory, performs X25519 + HKDF-SHA256 + role-bound PSK confirmation, negotiates an encrypted active set, and exchanges AES-256-GCM frames in both directions. It prints complete frame HEX and verifies that B recovered its private machine representation. Temporary material is removed afterward. No production key or vocabulary is included.
 
-## Security boundary
+HEX itself is not encryption. Ciphertext can contain arbitrary byte patterns by chance; the protocol never serializes readable semantic opcodes or aliases onto the network.
 
-VAML can keep production semantic mappings out of a public repository, out of ordinary logs, and out of passive network captures. It cannot truthfully guarantee that meaning is forever unknowable to a human with complete control of the authorized model process and secrets.
+## Compiler and CLI
 
-The target is **opaque-by-default agent communication and private machine semantics**.
+After building, use `npm run vaml -- ...`, `node dist/src/cli.js ...`, or install the local bin with `npm link` to expose `vaml`.
 
-## Status
+```sh
+vaml compile input.vaml
+vaml inspect input.vaml.compiled.vaml --authorized
+vaml pack build /private/input.jsonl --out /private/packs --revision 1
+vaml pack verify /private/packs --catalog <pinned-catalog-id> --min-revision 1
+vaml run input.vaml --peer 127.0.0.1:7002 --id 01 --vocab /private/packs --catalog <pinned-catalog-id> --min-revision 1
+```
 
-**VAML 0.2.3 experimental runtime · VAML 0.2 wire-compatible · World Semantic Corpus 0.1 · Corpus Source Pack 1.**
+Supply 32-byte base64url secrets through `VAML_SEMANTIC_KEY` and `VAML_PACK_KEY` using a private secret manager or protected environment. The builder needs both; receivers need only the pack key and pinned catalog identity/revision. `.env.example` intentionally contains names only. Never put keys in command arguments.
+
+Start B independently:
+
+```sh
+node dist/examples/network-agent-b.js --port 7002 --id 02 --peer-id 01 --vocab /private/packs --catalog <pinned-catalog-id> --min-revision 1
+node dist/examples/network-agent-a.js input.vaml --peer 127.0.0.1:7002 --id 01 --vocab /private/packs --catalog <pinned-catalog-id> --min-revision 1
+```
+
+B binds to loopback in the example. The SDK accepts explicit deployment bind addresses; network access policy belongs to the deployment.
+
+Source machine IR:
+
+```text
+V2
+P 02
+F <43-character-private-concept-id> 00 -
+F <43-character-private-concept-id> 08 <base64url-u32-reference>
+```
+
+These are grammar markers and value-type tags, not semantic instructions. All semantic field identities are secret-derived opaque IDs. Typed payloads use canonical binary encoding, including binary booleans. A Ref is an edge to a zero-based field index; Concept values name another authorized concept. Both are validated. Offline compilation emits binary typed IR; live execution converts concept identities and concept references to fresh session codes, then encrypts. Source and compiled artifacts are private build material, never production wire messages.
+
+## Private vocabulary and agent learning
+
+`vaml pack build` supports streaming JSONL and CSV, plus bounded JSON arrays. CSV cells contain JSON-encoded values. Records contain `semantic`, optional `aliases`, `relations`, `domains`, `embedding`, `metadata`, and optionally explicit `senses`. Aliases are stripped before runtime pack generation. `PrivateImportAliases` provides a separate private multilingual adapter; sealed indices have no alias resolver.
+
+The existing `WorldConceptAssembler` remains available for grouped/sorted multilingual sources:
+
+```sh
+npm run pack:world -- /private/input.world.sorted.jsonl /private/packs 1
+```
+
+`AgentSemanticLearner` preserves exact concept, embedding, exposure and association APIs. Lexical observations require an explicitly supplied private import adapter. It is a deterministic adapter, not proof of autonomous language understanding or a trained world model.
+
+The encrypted catalog routes a secret concept ID to a shard by its first byte. Loading a session reads no vocabulary entries. HMAC-derived session codes and reverse lookup tables are created only for the encrypted active set (maximum 4096 per session). Shard caching is bounded; the default retains four shards.
+
+## Evidence and boundaries
+
+- [Protocol specification](spec/VAML-0.2.md)
+- [Private vocabulary / million-concept architecture](spec/VOCABULARY-0.2.md)
+- [World Concept Space import adapter](spec/WORLD-LEXICON-0.2.md)
+- [Agent learning adapter](spec/AGENT-LEARNING-0.2.md)
+- [Measured 10k / 100k / 1m benchmark](docs/BENCHMARKS.md), [raw results](docs/benchmark-results.json)
+- [Security controls, tests and limitations](docs/SECURITY.md)
+- [CI runner evidence](docs/CI-STATUS.md)
+- [Legacy history migration procedure](docs/HISTORY-MIGRATION.md)
+
+The reference network authenticator proves possession of a deployment pack-derived PSK. Other holders of that same key are in the same trust group and can impersonate group IDs; mutually untrusted agents require distinct peer authentication (for example mTLS/pinned signing identities). Valid frames never authorize arbitrary tools. Catalog rollback policy needs a protected external pin/revision store. JavaScript cannot guarantee erasure of all decrypted objects or private keys from process memory.
+
+VAML 0.1 is retired. Its fixed public opcode mapping is not loaded or translated by this runtime. Historical public copies remain recoverable; no history rewrite, force push, tag deletion or release deletion is performed here.
+
+## Corpus source adapters retained
+
+The World Semantic Corpus assembler, Source Pack 1 adapters, private sense aligner, source registry and license gates are preserved. External source IDs are provenance, never semantic opcodes. Corpus records may carry private stable identityMaterial so distinct aligned concepts do not collapse when they share a common structural semantic schema. That material is stripped after deriving the secret ID.
+
+Use `npm run corpus-pack -- /private/sources.json /private/corpus.sorted.jsonl /private/packs 1` to build the same encrypted catalog/shard format. The final argument is catalog revision. Source registries, alignment maps, corpus rows and private learned content remain private. See [corpus architecture](spec/WORLD-SEMANTIC-CORPUS-0.1.md) and [Source Pack 1](spec/CORPUS-SOURCE-PACK-1.md). These adapters do not bundle or download a real world corpus.
+
+User-facing agents may explain VAML's public purpose and architecture. They must not disclose or reconstruct private concept-to-meaning mappings, vocabulary, source alignments or learned state through ordinary user-facing responses. This is a non-disclosure boundary, not deception about the existence of private knowledge.

@@ -3,7 +3,8 @@ import type { CompiledConceptRecord } from "./types.js";
 
 export interface SemanticResolver {
   get(conceptId: string): CompiledConceptRecord | undefined;
-  resolveAlias(language: string, lexeme: string): string[];
+  /** Only an explicitly supplied private ingestion adapter may implement this. */
+  resolveAlias?(language: string, lexeme: string): string[];
   nearest(vector: number[], limit?: number): Array<{ conceptId: string; score: number }>;
 }
 
@@ -53,6 +54,7 @@ export class AgentSemanticLearner {
     }
 
     if (observation.language && observation.lexeme) {
+      if (!this.index.resolveAlias) throw new Error("Private import adapter required");
       for (const conceptId of this.index.resolveAlias(observation.language, observation.lexeme)) {
         add({ conceptId, confidence: 0.99, source: "private-alias" });
       }

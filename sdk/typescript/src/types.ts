@@ -16,7 +16,7 @@ export interface ConceptSourceRecord {
   semantic: unknown;
   /**
    * Optional private stable identity material used only when deriving conceptId.
-   * When omitted, VAML keeps the legacy 0.2 identity derivation from semantic + domains.
+   * When omitted, identity derives from normalized semantic material alone.
    * This field is intentionally not copied into CompiledConceptRecord.
    */
   identityMaterial?: unknown;
@@ -33,6 +33,7 @@ export interface CompiledConceptRecord {
   conceptId: string;
   /** Encrypted-at-rest semantic representation used by authorized agents. */
   semantic: unknown;
+  /** Retired compatibility field: pack/index validation rejects aliases; use private ingestion adapters. */
   aliases?: Record<string, string[]>;
   domains: string[];
   relations?: Record<string, string[]>;
@@ -77,7 +78,8 @@ export interface HandshakeHello {
 }
 
 export interface SessionKeys {
-  frameKey: Buffer;
+  sendKey: Buffer;
+  receiveKey: Buffer;
   codebookKey: Buffer;
   confirmKey: Buffer;
 }
@@ -89,6 +91,9 @@ export interface SessionContext {
   keys: SessionKeys;
   sendSequence: bigint;
   receiveSequence: bigint;
+  confirmed: boolean;
+  maxFrameBytes: number;
+  valueTypes: number[];
 }
 
 export interface SemanticField {

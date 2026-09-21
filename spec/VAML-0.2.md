@@ -1,233 +1,108 @@
-# VAML 0.2 Runtime Specification
+# VAML 0.2 public protocol specification
 
-Status: experimental
+Status: experimental; this revision hardens the earlier 0.2 architecture. Earlier experimental handshakes and source boolean payloads are intentionally incompatible and fail closed. No 0.1 decoder or opcode bridge exists.
 
-VAML 0.2 moves semantic meaning out of public, human-readable opcode tables and into runtime-loaded semantic codebooks.
+## Layers and identity
 
-## 1. Goal
+1. Public specification: binary framing, numeric type tags, limits and cryptography.
+2. Private semantic layer: canonical machine records, relations and optional embeddings.
+3. Private ingestion adapters: multilingual expressions and explicit sense alignment, excluded from runtime packs.
+4. Session-local codebook: bounded active concepts, no permanent public semantic integers.
+5. Encrypted transport: binary TCP packets and authenticated VAML envelopes.
 
-VAML 0.2 is an agent-to-agent protocol with these properties:
+A concept identity is base64url(HMAC-SHA256(semantic_key, canonical_semantic_record)), exactly 32 bytes. The semantic record must already be normalized through ingestion. Object keys use deterministic ordinal ordering. Aliases, domains and annotations do not determine identity. Different senses require different semantic records. Normalization uses NFC for semantic strings, NFKC/trim for import aliases. No public dictionary is needed or supplied.
 
-- machine-native semantic frames;
-- no requirement for natural-language prose on the wire;
-- session-local opaque semantic identifiers;
-- encrypted private vocabulary packs;
-- dynamic vocabulary negotiation;
-- multilingual lexical ingestion;
-- model-neutral runtime adapters;
-- deterministic framing and validation;
-- explicit security boundaries.
+## Handshake
 
-VAML 0.2 DOES NOT claim that a human controlling the runtime can never reverse engineer meaning. If an agent can decode a semantic code, a sufficiently privileged operator may be able to inspect that agent or its memory. The design objective is narrower and practical: wire traffic and the public repository do not expose a stable human-readable word-to-code dictionary.
+Every connection uses a fresh X25519 key pair and 32-byte nonce. Binary hello:
 
-## 2. Semantic model
+| Field                                           |      Bytes |
+| ----------------------------------------------- | ---------: |
+| V2 magic, major 0, minor 2                      |          4 |
+| peer ID length                                  |          1 |
+| opaque configured peer ID (ASCII token, max 64) |   variable |
+| DER SPKI X25519 public key                      |         44 |
+| random nonce                                    |         32 |
+| catalog count                                   |          1 |
+| pinned catalog digests                          | count × 32 |
+| maximum frame bytes, big-endian                 |          4 |
+| supported type bitmap                           |          2 |
+| required feature bitmap (127)                   |          1 |
 
-VAML 0.2 separates three layers:
+Catalog count is 1–32. The reference network path uses one pinned catalog. No semantic concept list is sent in plaintext. All required features, protocol versions, peer IDs and catalog sets are checked; the complete decoded hellos are canonically ordered by peer ID and included in the KDF/confirmation transcript. A resolver MUST be scoped to exactly the pinned shared catalog; SDK callers must not pass a union of unshared vocabularies.
 
-1. `ConceptSpace` — canonical semantic concepts. A concept is a machine identity, not a word.
-2. `LexicalAdapters` — optional language aliases used only when importing or exporting human language.
-3. `SessionCodebook` — short opaque IDs used by agents during one negotiated session.
+The network authentication key is HKDF-SHA256(pack_key, zero32, "VAML-0.2/network-peer-auth"). The X25519 secret is mixed with this key through HMAC-SHA256, then HKDF-SHA256 with the transcript digest derives low-to-high, high-to-low, codebook and confirmation keys. Peer IDs determine direction. Each direction has a different AEAD key. Confirmation HMACs include the transcript and sender ID, so reflection fails. Runtime traffic is rejected until the remote confirmation passes a timing-safe comparison.
 
-Natural-language words are aliases. They are not protocol opcodes.
+PSK possession authenticates a trust group, not a unique device among other holders. Pin distinct authenticated identities or use mTLS for mutually untrusted peers. A successful key exchange alone does not authorize a tool.
 
-Example conceptual relationship:
+## Active set and lazy codebook
 
-```text
-English "search" ─┐
-Chinese "搜索"    ├──> concept fingerprint ──> session opaque code
-Malay "cari"     ┘
-```
+After confirmation, A sends an encrypted control frame (kind 1) containing concatenated 32-byte concept IDs. B validates each ID against its own authorized pinned index, derives the mapping, then returns an empty encrypted acknowledgment (kind 2). The network adapter sends semantic data only after this acknowledgment.
 
-The aliases may exist in a private source lexicon during compilation. They MUST NOT be required on the wire.
-
-## 3. Concept identity
-
-A concept fingerprint is derived from private semantic material using a keyed digest:
+For each active concept:
 
 ```text
-concept_id = HMAC-SHA256(master_semantic_key, canonical_semantic_record)
+session_code = first64(HMAC-SHA256(session_codebook_key, concept_id_bytes))
 ```
 
-Implementations SHOULD use a canonical binary/JSON encoding before hashing.
+A maximum of 4096 unique concepts is permitted. Reverse resolution is an O(1) Map from code to concept; it never scans vocabulary. Code collisions fail the negotiation and require a fresh session; no order-dependent remapping is allowed. Active-set updates in this reference connection are a single bounded transaction. Create another connection for a different set or more messages.
 
-The public repository MUST NOT contain production `master_semantic_key` values.
+Handshake cost depends on compact catalog metadata, not vocabulary cardinality. Active-set creation costs O(k) HMAC operations plus at most k cold shard reads; cold lookup can be materially slower than hot lookup.
 
-A concept ID is not transmitted directly when session privacy is enabled.
+## Frame and nonce
 
-## 4. Session codebook
+TCP prefixes every packet with a 4-byte big-endian size (1–1,048,576). Each established-session VAML frame is:
 
-For every peer session, agents derive a session secret and create a new mapping:
+| Field                                         | Bytes |
+| --------------------------------------------- | ----: |
+| V2 magic                                      |     2 |
+| major 0, minor 2                              |     2 |
+| kind: data 0, active set 1, acknowledgment 2  |     1 |
+| reserved zero                                 |     1 |
+| session ID (first64 transcript digest)        |     8 |
+| monotonically increasing directional sequence |     8 |
+| nonce: zero32 followed by sequence64          |    12 |
+| ciphertext length                             |     4 |
+| ciphertext                                    |     N |
+| AES-256-GCM authentication tag                |    16 |
 
-```text
-concept_id -> session_code
-```
+All 38 header bytes are AAD. Sequence starts at 1 and is never reused with the same directional key, including across control and data frames. Reject values above uint64; rekey by creating a new session. Strictly increasing receive sequences reject duplicates and out-of-order frames. Tag failure does not advance receive state; authenticated malformed payloads consume the sequence and terminate the network exchange. Reflection, wrong session IDs, nonce/header tampering, truncated/trailing data and unexpected frame kinds are rejected.
 
-`session_code` SHOULD be at least 64 bits and SHOULD be pseudorandom within the session.
+No semantic labels, aliases or stable concept IDs are serialized in public handshake fields. Encrypted data uses 64-bit session codes for both field identities and Concept values. Typed user data may include text/JSON but is always encrypted; it is never interpreted as a semantic opcode.
 
-A recommended derivation is:
+## Data payload and graph edges
 
-```text
-session_code = first64(HMAC-SHA256(session_code_key, concept_id || counter))
-```
+Each field is session_code64 | type8 | length32 | value. All integers are big-endian. Maximum 4096 fields and 1 MiB total encrypted frame size.
 
-Collisions MUST be detected and resolved by incrementing `counter`.
+| Type | Value                                              |
+| ---- | -------------------------------------------------- |
+| 00   | empty                                              |
+| 01   | unsigned 64-bit integer                            |
+| 02   | signed 64-bit integer                              |
+| 03   | finite IEEE float64                                |
+| 04   | one binary byte, 0 or 1                            |
+| 05   | byte sequence                                      |
+| 06   | strict UTF-8 data                                  |
+| 07   | 8-byte session code referring to an active concept |
+| 08   | uint32 reference to a zero-based field index       |
+| 09   | UTF-8 JSON data                                    |
 
-The same concept therefore SHOULD use different wire identifiers in different sessions.
+Unknown and unnegotiated types, invalid lengths, invalid booleans, nonfinite numbers, unnegotiated concepts and dangling references fail. Reference-valued fields express graph edges; the field concept supplies the private relation semantics. Cycles are structurally allowed and must be handled by the consuming model/policy.
 
-## 5. Key agreement
+## Source and compilation
 
-VAML 0.2 reference negotiation uses ephemeral X25519 keys.
+Text machine IR is V2, followed by P and the opaque peer ID, followed by F lines containing opaque concept ID, two-digit type tag, and base64url binary payload (dash for empty). Public grammar markers are not semantic labels. IDs are strict canonical base64url, not English aliases or legacy opcodes.
 
-Each agent creates a fresh ephemeral key pair and exchanges only the public key plus protocol metadata. The shared secret is computed using X25519 and expanded with HKDF-SHA256.
+The offline compiler emits VC 00 02, peer-length8, peer bytes, field-count16, then records containing concept-id32, type8, length32 and typed binary data. Offline Concept values are 32-byte private IDs; session compilation replaces them with 8-byte active codes. Compilation rejects malformed input before output and does not generate reusable pre-encrypted frames. Build artifacts are private and bounded to approximately 1 MiB.
 
-Derived keys:
+Inspect requires the explicit local --authorized flag and prints only IDs/types/peer metadata, never semantic records. This flag is operator intent, not an authentication mechanism; filesystem access controls remain necessary. Run resolves authorized concepts, negotiates the peer session and sends encrypted frames.
 
-- `frame_key` — authenticated encryption for VAML frames;
-- `codebook_key` — session concept-code derivation;
-- `confirm_key` — handshake confirmation tags.
+## Bounds and sealed operation
 
-Peers MUST bind the transcript, protocol version, agent identities, and capability hashes into HKDF context or confirmation data.
+TCP queues are capped at eight packets / 2 MiB; advertised sizes are checked before allocation. Idle timeout is 10 seconds and the whole connection has a 15-second deadline. The server permits 16 concurrent connections, one request/response per connection. Higher-level deployments still need per-principal rate limits and connection admission policy.
 
-## 6. Encrypted vocabulary packs
+Normal logs contain only HEX ciphertext, counts and generic failure categories. Decrypted semantics and aliases must not be logged. close() clears exposed session key buffers and maps; Node/V8 copies, KeyObjects, immutable strings and privileged process inspection are outside guaranteed zeroization.
 
-A private vocabulary pack (`.vocab`) contains concept records required by an agent runtime. It is encrypted with AES-256-GCM in the reference implementation.
+Frame integrity, private pack authorization and runtime syntax never grant permission to execute a tool or modify external state.
 
-The unencrypted source lexicon SHOULD remain outside Git and can contain:
-
-- canonical semantic descriptors;
-- aliases in any number of languages;
-- relations to other concepts;
-- ontology/domain membership;
-- embeddings or model adapter metadata;
-- deprecation/version metadata.
-
-Production private lexicons MUST be excluded from the public repository.
-
-## 7. Unlimited vocabulary extension
-
-VAML 0.2 does not attempt to permanently assign one public integer to every word in every language. That approach is both impossible to complete and semantically weak because words are ambiguous and languages continuously change.
-
-Instead, VAML 0.2 supports open-ended concept packs.
-
-An implementation may ingest lexical sources such as dictionaries, controlled vocabularies, ontologies, domain datasets, or organization-specific knowledge. Importers normalize lexical entries into concepts, then the private compiler produces encrypted machine packs.
-
-This makes the address space effectively open-ended rather than limited to a fixed 16-bit registry.
-
-## 8. `.vaml` source format
-
-VAML 0.2 defines a machine-oriented source/IR format for tooling. Human-readable source is an optional build-time representation and MUST NOT be sent as production wire traffic.
-
-Minimal compiler input model:
-
-```text
-@0.2
-$peer <opaque-peer-id>
-$concept <concept-reference> <typed-value?>
-$concept <concept-reference> <typed-value?>
-```
-
-The compiler resolves concept references from a loaded private codebook and emits encrypted binary frames.
-
-A production compiler MAY accept structured JSON/AST directly and skip textual syntax entirely.
-
-## 9. Wire frame
-
-Reference encrypted frame layout:
-
-```text
-magic        2 bytes   "V2"
-major        1 byte
-minor        1 byte
-flags        1 byte
-reserved     1 byte
-session_id   8 bytes
-sequence     8 bytes
-nonce       12 bytes
-cipher_len   4 bytes
-ciphertext   N bytes
-GCM tag      16 bytes
-```
-
-The encrypted plaintext payload is a sequence of TLVs:
-
-```text
-semantic_code   8 bytes
-value_type      1 byte
-length          4 bytes
-value            N bytes
-```
-
-Production implementations SHOULD enforce maximum frame and field lengths.
-
-## 10. Replay protection
-
-Every session maintains monotonically increasing sequence numbers. A receiver MUST reject stale or duplicate sequence numbers according to its replay window policy.
-
-## 11. Vocabulary negotiation
-
-Peers exchange compact vocabulary manifests before task exchange.
-
-A manifest contains only non-semantic metadata such as:
-
-- protocol version;
-- vocabulary pack IDs/hashes;
-- domain pack hashes;
-- feature flags;
-- maximum frame size;
-- supported value types.
-
-Peers SHOULD NOT exchange a plaintext list of word meanings.
-
-If both peers possess the same private pack, they can derive identical session codes from the agreed session secret and pack contents.
-
-If a required pack is missing, the task MUST fail with a capability/vocabulary mismatch rather than guessing meaning.
-
-## 12. Learning by agents
-
-A VAML-capable agent learns the protocol in two stages.
-
-### Stage A: public runtime rules
-
-The agent learns framing, type rules, negotiation, replay protection, codebook operations, and safety constraints from this repository.
-
-### Stage B: private semantic pack
-
-At runtime the agent receives an authorized encrypted vocabulary pack and key material from a secure deployment mechanism. The pack is decoded inside the runtime and used to construct the agent's concept resolver.
-
-The agent SHOULD reason over internal concept identities rather than translating every incoming code into visible natural-language text.
-
-## 13. Security boundary
-
-Opaque semantic identifiers are not a substitute for cryptography.
-
-VAML 0.2 uses authenticated encryption specifically so intercepted traffic does not expose payload values or session code mappings.
-
-The following remain required in production:
-
-- authenticated peer identities;
-- key rotation;
-- secret storage;
-- authorization;
-- sandboxing/tool policy;
-- rate limits;
-- audit logging;
-- replay protection;
-- compromise recovery.
-
-## 14. Human visibility
-
-VAML 0.2 supports three deployment modes:
-
-- `debug`: developer labels may be available locally;
-- `opaque`: no labels are emitted, only concept/session IDs;
-- `sealed`: private packs are encrypted at rest and human-readable adapters are disabled in the runtime.
-
-`sealed` substantially reduces accidental human readability, but it is not a mathematical guarantee against a privileged operator who controls the model/runtime.
-
-## 15. Compatibility
-
-VAML 0.1 remains a readable experimental bootstrap protocol.
-
-VAML 0.2 runtimes MUST NOT silently treat VAML 0.1 static semantic IDs as VAML 0.2 private concept IDs.
-
-A bridge may translate between versions only when explicitly configured with an authorized semantic mapping.
+For corpus adapters that supply explicit private identityMaterial, identity uses HMAC-SHA256 over a canonical object containing identityVersion (vaml-private-identity/0.1) and identityMaterial. This preserves identity across evidence/domain enrichment while keeping differently aligned concepts distinct. The importer normalizes and preserves that private material through ID derivation, then omits it from compiled runtime records. This is an explicit private semantic alignment source, never a public word-to-code registry.

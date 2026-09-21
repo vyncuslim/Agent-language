@@ -19,6 +19,12 @@ source-pack-private/
 *.sources.private.json
 *.alignment.private.json
 *.vocab.json
+*.vocab
+*.compiled.vaml
+*.private.json
+*.private.csv
+*.private.vaml
+.build-*/
 *.vocab.key
 *.semantic.key
 *.session.key

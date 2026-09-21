@@ -10,6 +10,7 @@ import {
   createPrivateKey,
   createPublicKey,
   type KeyObject,
+  timingSafeEqual,
 } from "node:crypto";
 
 export function b64(data: Uint8Array): string {
@@ -17,7 +18,23 @@ export function b64(data: Uint8Array): string {
 }
 
 export function unb64(value: string): Buffer {
-  return Buffer.from(value, "base64url");
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]*$/.test(value))
+    throw new Error("Invalid base64url");
+  const out = Buffer.from(value, "base64url");
+  if (b64(out) !== value) throw new Error("Noncanonical base64url");
+  return out;
+}
+
+export function equalSecret(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function assertId(value: string): void {
+  if (unb64(value).length !== 32) throw new Error("Invalid opaque identity");
+}
+
+export function assertKey(key: Uint8Array): void {
+  if (key.length !== 32) throw new Error("Expected 32-byte secret");
 }
 
 export function sha256(data: Uint8Array | string): Buffer {
@@ -37,7 +54,7 @@ function sortValue(value: unknown): unknown {
   if (value && typeof value === "object" && !Buffer.isBuffer(value)) {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([key, item]) => [key, sortValue(item)]),
     );
   }
@@ -78,8 +95,14 @@ export function importPrivateKey(value: string): KeyObject {
   return createPrivateKey({ key: unb64(value), type: "pkcs8", format: "der" });
 }
 
-export function sharedSecret(privateKey: KeyObject, publicKeyB64: string): Buffer {
-  return diffieHellman({ privateKey, publicKey: importPublicKey(publicKeyB64) });
+export function sharedSecret(
+  privateKey: KeyObject,
+  publicKeyB64: string,
+): Buffer {
+  return diffieHellman({
+    privateKey,
+    publicKey: importPublicKey(publicKeyB64),
+  });
 }
 
 export interface AeadBox {
@@ -94,7 +117,9 @@ export function aesGcmEncrypt(
   aad?: Uint8Array,
   nonce = randomBytes(12),
 ): AeadBox {
-  if (key.byteLength !== 32) throw new Error("AES-256-GCM requires a 32-byte key");
+  if (key.byteLength !== 32)
+    throw new Error("AES-256-GCM requires a 32-byte key");
+  if (nonce.length !== 12) throw new Error("Invalid GCM nonce");
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
   if (aad) cipher.setAAD(Buffer.from(aad));
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -106,7 +131,10 @@ export function aesGcmDecrypt(
   box: AeadBox,
   aad?: Uint8Array,
 ): Buffer {
-  if (key.byteLength !== 32) throw new Error("AES-256-GCM requires a 32-byte key");
+  if (key.byteLength !== 32)
+    throw new Error("AES-256-GCM requires a 32-byte key");
+  if (box.nonce.length !== 12 || box.tag.length !== 16)
+    throw new Error("Invalid GCM parameters");
   const decipher = createDecipheriv("aes-256-gcm", key, box.nonce);
   if (aad) decipher.setAAD(Buffer.from(aad));
   decipher.setAuthTag(box.tag);

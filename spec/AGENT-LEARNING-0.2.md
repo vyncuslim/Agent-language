@@ -22,7 +22,7 @@ The preferred native path is concept/vector/relations. Human language is an opti
 
 ## Reference learner
 
-`AgentSemanticLearner` operates over a `PrivateSemanticIndex` and keeps runtime learning state in opaque form:
+`AgentSemanticLearner` operates over a sealed `PrivateSemanticIndex` (or compatible resolver) and keeps runtime learning state in opaque form. Lexical observations are rejected unless the caller explicitly supplies a private import adapter backed by `PrivateImportAliases`; aliases are not present in runtime packs:
 
 ```text
 conceptId -> exposure weight

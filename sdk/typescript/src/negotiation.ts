@@ -1,8 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual, type KeyObject } from "node:crypto";
+import { randomBytes, type KeyObject } from "node:crypto";
 import {
+  assertId,
+  assertKey,
   b64,
   canonicalJson,
   deriveKey,
+  equalSecret,
   exportPublicKey,
   generateEphemeralX25519,
   hmacSha256,
@@ -12,140 +15,214 @@ import {
 } from "./crypto.js";
 import type {
   HandshakeHello,
-  PrivateLexiconPayload,
   SessionContext,
-  SessionKeys,
   VocabularyManifest,
 } from "./types.js";
-
+export const MAX_ACTIVE = 4096;
+const FEATURES = [
+  "opaque-codebook",
+  "x25519",
+  "hkdf-sha256",
+  "aes-256-gcm",
+  "replay-sequence",
+  "active-set",
+  "psk-confirmation",
+];
+export interface ConceptResolver {
+  has(id: string): boolean;
+}
 export interface PendingHandshake {
   hello: HandshakeHello;
   privateKey: KeyObject;
+  consumed?: boolean;
 }
-
 export interface NegotiatedSession {
   context: SessionContext;
   conceptToCode: Map<string, bigint>;
   codeToConcept: Map<bigint, string>;
   confirmationTag: string;
+  expectedConfirmation: Buffer;
+  activate(ids: string[]): void;
 }
-
 export function defaultManifest(packIds: string[]): VocabularyManifest {
   return {
     protocol: "VAML",
     version: "0.2",
-    packIds: [...packIds].sort(),
-    features: ["opaque-codebook", "x25519", "hkdf-sha256", "aes-256-gcm", "replay-sequence"],
-    maxFrameBytes: 8 * 1024 * 1024,
+    packIds: [...new Set(packIds)].sort(),
+    features: [...FEATURES],
+    maxFrameBytes: 1048576,
     valueTypes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
   };
 }
-
-export function beginHandshake(agentId: string, manifest: VocabularyManifest): PendingHandshake {
+function validateHello(h: HandshakeHello): void {
+  if (
+    !h ||
+    h.protocol !== "VAML" ||
+    h.version !== "0.2" ||
+    h.manifest?.protocol !== "VAML" ||
+    h.manifest.version !== "0.2"
+  )
+    throw new Error("VAML version mismatch");
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(h.agentId))
+    throw new Error("Invalid peer identity");
+  if (unb64(h.nonce).length !== 32 || unb64(h.ephemeralPublicKey).length !== 44)
+    throw new Error("Invalid handshake material");
+  const m = h.manifest;
+  if (
+    !Array.isArray(m.packIds) ||
+    m.packIds.length < 1 ||
+    m.packIds.length > 32 ||
+    new Set(m.packIds).size !== m.packIds.length
+  )
+    throw new Error("Invalid pack manifest");
+  m.packIds.forEach(assertId);
+  if (
+    !Array.isArray(m.features) ||
+    m.features.length !== FEATURES.length ||
+    FEATURES.some((f) => !m.features.includes(f))
+  )
+    throw new Error("Handshake downgrade rejected");
+  if (
+    !Number.isInteger(m.maxFrameBytes) ||
+    m.maxFrameBytes < 256 ||
+    m.maxFrameBytes > 1048576
+  )
+    throw new Error("Invalid frame limit");
+  if (
+    !Array.isArray(m.valueTypes) ||
+    !m.valueTypes.length ||
+    m.valueTypes.some((t) => !Number.isInteger(t) || t < 0 || t > 9) ||
+    new Set(m.valueTypes).size !== m.valueTypes.length
+  )
+    throw new Error("Invalid value types");
+}
+export function beginHandshake(
+  agentId: string,
+  manifest: VocabularyManifest,
+): PendingHandshake {
   const pair = generateEphemeralX25519();
-  return {
-    privateKey: pair.privateKey,
-    hello: {
-      protocol: "VAML",
-      version: "0.2",
-      agentId,
-      ephemeralPublicKey: exportPublicKey(pair.publicKey),
-      nonce: b64(randomBytes(32)),
-      manifest,
-    },
+  const hello: HandshakeHello = {
+    protocol: "VAML",
+    version: "0.2",
+    agentId,
+    ephemeralPublicKey: exportPublicKey(pair.publicKey),
+    nonce: b64(randomBytes(32)),
+    manifest: structuredClone(manifest),
   };
+  validateHello(hello);
+  return { privateKey: pair.privateKey, hello };
 }
-
-function canonicalTranscript(a: HandshakeHello, b: HandshakeHello): Buffer {
-  const ordered = [a, b].sort((x, y) => {
-    const byKey = x.ephemeralPublicKey.localeCompare(y.ephemeralPublicKey);
-    return byKey || x.agentId.localeCompare(y.agentId);
-  });
-  return Buffer.from(canonicalJson(ordered), "utf8");
-}
-
-function assertCompatible(local: HandshakeHello, remote: HandshakeHello): string[] {
-  if (local.protocol !== "VAML" || remote.protocol !== "VAML") throw new Error("Protocol mismatch");
-  if (local.version !== "0.2" || remote.version !== "0.2") throw new Error("VAML version mismatch");
-
-  const sharedPacks = local.manifest.packIds.filter((id) => remote.manifest.packIds.includes(id)).sort();
-  if (sharedPacks.length === 0) throw new Error("No shared private vocabulary pack");
-  return sharedPacks;
-}
-
-function deriveSessionKeys(secret: Buffer, transcript: Buffer): SessionKeys {
-  const salt = sha256(transcript);
-  return {
-    frameKey: deriveKey(secret, salt, "VAML-0.2/frame-key", 32),
-    codebookKey: deriveKey(secret, salt, "VAML-0.2/codebook-key", 32),
-    confirmKey: deriveKey(secret, salt, "VAML-0.2/confirm-key", 32),
-  };
-}
-
-function deriveSessionId(transcript: Buffer): bigint {
-  return sha256(transcript).readBigUInt64BE(0);
-}
-
-function makeCodebook(concepts: string[], codebookKey: Buffer): {
-  conceptToCode: Map<string, bigint>;
-  codeToConcept: Map<bigint, string>;
-} {
-  const conceptToCode = new Map<string, bigint>();
-  const codeToConcept = new Map<bigint, string>();
-
-  for (const conceptId of [...new Set(concepts)].sort()) {
-    let counter = 0;
-    for (;;) {
-      const digest = hmacSha256(codebookKey, `${conceptId}|${counter}`);
-      const code = digest.readBigUInt64BE(0);
-      const existing = codeToConcept.get(code);
-      if (!existing || existing === conceptId) {
-        conceptToCode.set(conceptId, code);
-        codeToConcept.set(code, conceptId);
-        break;
-      }
-      counter += 1;
-    }
-  }
-
-  return { conceptToCode, codeToConcept };
-}
-
+/** The resolver is restricted to the pinned shared catalog. No vocabulary enumeration. */
 export function finishHandshake(
   pending: PendingHandshake,
-  remoteHello: HandshakeHello,
-  lexicon: PrivateLexiconPayload,
+  remote: HandshakeHello,
+  resolver: ConceptResolver,
+  authKey: Uint8Array,
+  expectedPeer: string,
 ): NegotiatedSession {
-  assertCompatible(pending.hello, remoteHello);
-  const transcript = canonicalTranscript(pending.hello, remoteHello);
-  const secret = sharedSecret(pending.privateKey, remoteHello.ephemeralPublicKey);
-  const keys = deriveSessionKeys(secret, transcript);
-  const { conceptToCode, codeToConcept } = makeCodebook(
-    lexicon.concepts.map((item) => item.conceptId),
-    keys.codebookKey,
+  if (pending.consumed) throw new Error("Handshake already consumed");
+  pending.consumed = true;
+  assertKey(authKey);
+  validateHello(pending.hello);
+  validateHello(remote);
+  const local = pending.hello;
+  if (
+    remote.agentId !== expectedPeer ||
+    local.agentId === remote.agentId ||
+    local.ephemeralPublicKey === remote.ephemeralPublicKey
+  )
+    throw new Error("Peer/reflection mismatch");
+  if (
+    canonicalJson([...local.manifest.packIds].sort()) !==
+    canonicalJson([...remote.manifest.packIds].sort())
+  )
+    throw new Error("No shared private vocabulary pack");
+  const ordered = [local, remote].sort((a, b) =>
+    a.agentId < b.agentId ? -1 : 1,
   );
-  const sessionId = deriveSessionId(transcript);
-  const confirmationTag = b64(createHmac("sha256", keys.confirmKey).update(transcript).digest());
-
+  const transcript = Buffer.from(canonicalJson(ordered)),
+    salt = sha256(transcript);
+  const secret = sharedSecret(pending.privateKey, remote.ephemeralPublicKey);
+  const ikm = hmacSha256(authKey, secret);
+  secret.fill(0);
+  const low = local.agentId === ordered[0].agentId;
+  const keys = {
+    sendKey: deriveKey(
+      ikm,
+      salt,
+      low ? "VAML-0.2/low-high" : "VAML-0.2/high-low",
+    ),
+    receiveKey: deriveKey(
+      ikm,
+      salt,
+      low ? "VAML-0.2/high-low" : "VAML-0.2/low-high",
+    ),
+    codebookKey: deriveKey(ikm, salt, "VAML-0.2/codebook"),
+    confirmKey: deriveKey(ikm, salt, "VAML-0.2/confirmation"),
+  };
+  ikm.fill(0);
+  const conceptToCode = new Map<string, bigint>(),
+    codeToConcept = new Map<bigint, string>();
+  const context: SessionContext = {
+    sessionId: salt.readBigUInt64BE(),
+    localAgentId: local.agentId,
+    remoteAgentId: remote.agentId,
+    keys,
+    sendSequence: 0n,
+    receiveSequence: 0n,
+    confirmed: false,
+    maxFrameBytes: Math.min(
+      local.manifest.maxFrameBytes,
+      remote.manifest.maxFrameBytes,
+    ),
+    valueTypes: local.manifest.valueTypes.filter((t) =>
+      remote.manifest.valueTypes.includes(t),
+    ),
+  };
   return {
-    context: {
-      sessionId,
-      localAgentId: pending.hello.agentId,
-      remoteAgentId: remoteHello.agentId,
-      keys,
-      sendSequence: 0n,
-      receiveSequence: -1n,
-    },
+    context,
     conceptToCode,
     codeToConcept,
-    confirmationTag,
+    confirmationTag: b64(
+      hmacSha256(
+        keys.confirmKey,
+        Buffer.concat([transcript, Buffer.from(local.agentId)]),
+      ),
+    ),
+    expectedConfirmation: hmacSha256(
+      keys.confirmKey,
+      Buffer.concat([transcript, Buffer.from(remote.agentId)]),
+    ),
+    activate(ids) {
+      if (!context.confirmed) throw new Error("Handshake not confirmed");
+      if (
+        ids.length > MAX_ACTIVE ||
+        new Set([...conceptToCode.keys(), ...ids]).size > MAX_ACTIVE
+      )
+        throw new Error("Active set limit");
+      const additions = new Map<bigint, string>();
+      for (const id of ids) {
+        assertId(id);
+        if (!resolver.has(id))
+          throw new Error("Unknown or unauthorized concept");
+        const code = hmacSha256(keys.codebookKey, unb64(id)).readBigUInt64BE();
+        const existing = additions.get(code) ?? codeToConcept.get(code);
+        if (existing && existing !== id)
+          throw new Error("Session code collision; renegotiate");
+        additions.set(code, id);
+      }
+      for (const [code, id] of additions) {
+        conceptToCode.set(id, code);
+        codeToConcept.set(code, id);
+      }
+    },
   };
 }
-
-export function verifyConfirmation(local: NegotiatedSession, remoteTag: string): void {
-  const expected = unb64(local.confirmationTag);
-  const actual = unb64(remoteTag);
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+export function verifyConfirmation(
+  local: NegotiatedSession,
+  remoteTag: string,
+): void {
+  if (!equalSecret(local.expectedConfirmation, unb64(remoteTag)))
     throw new Error("Handshake confirmation mismatch");
-  }
+  local.context.confirmed = true;
 }

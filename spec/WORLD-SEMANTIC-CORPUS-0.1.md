@@ -146,7 +146,7 @@ For World Semantic Corpus records, the identity material contains the private cr
 
 This means the same aligned concept can keep its private `conceptId` when its domains, source evidence, aliases, relations, or embeddings are enriched later.
 
-Legacy VAML 0.2 records that do not provide `identityMaterial` continue using the original `semantic + domains` identity derivation, preserving compatibility.
+Records without identityMaterial now derive identity from normalized semantic material alone. Domains and aliases are annotations. Older experimental packs must be rebuilt; compatibility is not silently inferred.
 
 ## Streaming and scale
 
@@ -154,17 +154,9 @@ Input JSONL MUST be grouped and sorted ascending by `alignmentKey`.
 
 `WorldSemanticCorpusAssembler` holds only the active concept group in memory. This allows very large private datasets to be processed without loading the entire corpus into RAM.
 
-The default encrypted shard size is 50,000 concepts and is configurable.
+Corpus builds now use the shared authenticated catalog and 256 hash-partitioned shards, capped at 50,000 concepts per bucket. Catalog loading and handshake do not enumerate concepts.
 
-Capacity examples:
-
-```text
-20 shards       about 1,000,000 concepts
-200 shards      about 10,000,000 concepts
-2,000 shards    about 100,000,000 concepts
-```
-
-These are architectural capacities, not claims about corpus content shipped by this repository.
+The implemented 256-bucket catalog was measured with 1,000,000 synthetic concepts. This is storage/runtime scale evidence, not real-world corpus coverage. Larger deployments require versioned multi-level routing as described in VOCABULARY-0.2.md.
 
 ## Semantic evidence
 
@@ -226,16 +218,16 @@ npm run corpus-pack -- \
   /secure/corpus.sources.json \
   /secure/corpus.sorted.jsonl \
   /secure/out/world-corpus \
-  50000
+  1
 ```
 
 Outputs:
 
 ```text
-world-corpus.00000.vocab.json
-world-corpus.00001.vocab.json
+<pack-digest>.vocab
+<other-pack-digest>.vocab
 ...
-world-corpus.corpus.manifest.json
+<catalog-digest>.catalog.vocab
 ```
 
 All outputs are private deployment artifacts and must not be committed to this public repository.
@@ -252,3 +244,5 @@ A corpus build is suitable for VAML when it can:
 - stream to encrypted shards at large scale;
 - load into an authorized semantic index and learner;
 - participate in session-local VAML negotiation without creating stable public word IDs.
+
+The final corpus-pack argument is catalog revision. The output argument is a private directory. Catalog pinning and minimum revision are mandatory for runtime loading. Source-policy digests are retained inside encrypted record metadata; source registries and alignment material remain private. Aliases are stripped from all runtime shards.

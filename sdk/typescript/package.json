@@ -1,21 +1,31 @@
 {
   "name": "@vaml/runtime",
-  "version": "0.2.3-experimental",
+  "version": "0.2.4-experimental",
   "private": true,
-  "description": "Reference TypeScript runtime for VAML 0.2 opaque agent communication",
+  "description": "Opaque machine semantic Agent-to-Agent runtime",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "vaml": "dist/src/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "demo": "tsx examples/agent-pair-demo.ts",
-    "pack": "tsx tools/build-private-lexicon.ts",
-    "world-pack": "tsx tools/build-world-lexicon.ts",
-    "corpus-pack": "tsx tools/build-world-semantic-corpus.ts",
-    "privacy": "tsx tools/privacy-lint.ts ../..",
     "test": "node --import tsx --test test/*.test.ts",
-    "check": "npm run privacy && npm run build && npm test"
+    "demo": "node dist/examples/agent-pair-demo.js",
+    "vaml": "node dist/src/cli.js",
+    "pack": "tsx tools/build-private-lexicon.ts",
+    "pack:world": "tsx tools/build-world-lexicon.ts",
+    "privacy:lint": "tsx tools/privacy-lint.ts ../..",
+    "benchmark": "node --expose-gc dist/bench/vocabulary.js",
+    "check": "npm run build && npm test && npm run demo && npm run privacy:lint",
+    "privacy": "tsx tools/privacy-lint.ts ../..",
+    "world-pack": "tsx tools/build-world-lexicon.ts",
+    "corpus-pack": "tsx tools/build-world-semantic-corpus.ts"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

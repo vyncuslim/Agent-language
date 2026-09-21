@@ -1,7 +1,13 @@
 import { promises as fs } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-const SKIP_DIRS = new Set([".git", "node_modules", "dist", ".next", "coverage"]);
+const SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  ".next",
+  "coverage",
+]);
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 
 const forbiddenFilePatterns: RegExp[] = [
@@ -23,6 +29,9 @@ const forbiddenFilePatterns: RegExp[] = [
   /\.sources\.private\.json$/i,
   /\.alignment\.private\.json$/i,
   /\.vocab\.json$/i,
+  /\.vocab$/i,
+  /\.compiled\.vaml$/i,
+  /\.private\.(?:json|csv|vaml)$/i,
   /\.vocab\.key$/i,
   /\.semantic\.key$/i,
   /\.session\.key$/i,
@@ -44,15 +53,21 @@ const forbiddenContentPatterns: Array<{ name: string; pattern: RegExp }> = [
   },
   {
     name: "public fixed word-to-opcode registry",
-    pattern: /["'](?:word|lexeme|term)["']\s*:\s*["'][^"']+["'][\s\S]{0,160}["'](?:opcode|publicCode|fixedCode)["']\s*:/i,
+    pattern:
+      /["'](?:word|lexeme|term)["']\s*:\s*["'][^"']+["'][\s\S]{0,160}["'](?:opcode|publicCode|fixedCode)["']\s*:/i,
   },
   {
     name: "committed private source-pack alignment table",
-    pattern: /["'](?:sourceSenseId|synset|wikidataId)["']\s*:\s*["'][^"']+["'][\s\S]{0,200}["']alignmentKey["']\s*:\s*["'][^"']+["']/i,
+    pattern:
+      /["'](?:sourceSenseId|synset|wikidataId)["']\s*:\s*["'][^"']+["'][\s\S]{0,200}["']alignmentKey["']\s*:\s*["'][^"']+["']/i,
   },
 ];
 
-async function walk(root: string, current: string, errors: string[]): Promise<void> {
+async function walk(
+  root: string,
+  current: string,
+  errors: string[],
+): Promise<void> {
   const entries = await fs.readdir(current, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
@@ -65,7 +80,10 @@ async function walk(root: string, current: string, errors: string[]): Promise<vo
     }
     if (!entry.isFile()) continue;
 
-    if (forbiddenFilePatterns.some((pattern) => pattern.test(rel)) && !rel.endsWith(".env.example")) {
+    if (
+      forbiddenFilePatterns.some((pattern) => pattern.test(rel)) &&
+      !rel.endsWith(".env.example")
+    ) {
       errors.push(`${rel}: private/secret filename must not be committed`);
       continue;
     }

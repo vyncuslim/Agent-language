@@ -1,66 +1,52 @@
 import type { CompiledConceptRecord, PrivateLexiconPayload } from "./types.js";
-
-function normalizeLexeme(value: string): string {
-  return value.normalize("NFKC").trim().toLocaleLowerCase("und");
-}
-
+/** Sealed runtime index has no lexical alias adapter. */
 export class PrivateSemanticIndex {
   private readonly concepts = new Map<string, CompiledConceptRecord>();
-  private readonly aliases = new Map<string, Set<string>>();
-
-  constructor(readonly payload: PrivateLexiconPayload) {
-    for (const concept of payload.concepts) {
-      this.concepts.set(concept.conceptId, concept);
-      for (const [language, values] of Object.entries(concept.aliases ?? {})) {
-        for (const value of values) {
-          const key = `${language}|${normalizeLexeme(value)}`;
-          const set = this.aliases.get(key) ?? new Set<string>();
-          set.add(concept.conceptId);
-          this.aliases.set(key, set);
-        }
-      }
+  constructor(payload: PrivateLexiconPayload) {
+    for (const c of payload.concepts) {
+      if (c.aliases) throw new Error("Aliases belong to private import layer");
+      if (this.concepts.has(c.conceptId)) throw new Error("Duplicate concept");
+      this.concepts.set(c.conceptId, c);
     }
   }
-
-  get(conceptId: string): CompiledConceptRecord | undefined {
-    return this.concepts.get(conceptId);
+  has(id: string): boolean {
+    return this.concepts.has(id);
   }
-
-  resolveAlias(language: string, lexeme: string): string[] {
-    return [...(this.aliases.get(`${language}|${normalizeLexeme(lexeme)}`) ?? [])];
+  get(id: string): CompiledConceptRecord | undefined {
+    return this.concepts.get(id);
   }
-
-  nearest(vector: number[], limit = 8): Array<{ conceptId: string; score: number }> {
-    const scored: Array<{ conceptId: string; score: number }> = [];
-    for (const concept of this.concepts.values()) {
-      if (!concept.embedding || concept.embedding.length !== vector.length) continue;
-      scored.push({ conceptId: concept.conceptId, score: cosine(vector, concept.embedding) });
-    }
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit);
+  semantic(id: string): unknown {
+    const c = this.get(id);
+    if (!c) throw new Error("Unknown private concept");
+    return c.semantic;
   }
-
-  /** Returns machine semantic material to an authorized agent adapter. */
-  semantic(conceptId: string): unknown {
-    const concept = this.concepts.get(conceptId);
-    if (!concept) throw new Error(`Unknown private concept: ${conceptId}`);
-    return concept.semantic;
-  }
-
   size(): number {
     return this.concepts.size;
   }
-}
-
-function cosine(a: number[], b: number[]): number {
-  let dot = 0;
-  let aa = 0;
-  let bb = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    aa += a[i] * a[i];
-    bb += b[i] * b[i];
+  nearest(
+    vector: number[],
+    limit = 8,
+  ): Array<{ conceptId: string; score: number }> {
+    if (limit < 1 || limit > 100 || vector.some((n) => !Number.isFinite(n)))
+      throw new Error("Invalid nearest query");
+    const best: Array<{ conceptId: string; score: number }> = [];
+    for (const c of this.concepts.values()) {
+      if (!c.embedding || c.embedding.length !== vector.length) continue;
+      let dot = 0,
+        a = 0,
+        b = 0;
+      for (let i = 0; i < vector.length; i++) {
+        dot += vector[i] * c.embedding[i];
+        a += vector[i] ** 2;
+        b += c.embedding[i] ** 2;
+      }
+      best.push({
+        conceptId: c.conceptId,
+        score: a && b ? dot / Math.sqrt(a * b) : 0,
+      });
+      best.sort((x, y) => y.score - x.score);
+      if (best.length > limit) best.pop();
+    }
+    return best;
   }
-  if (aa === 0 || bb === 0) return 0;
-  return dot / Math.sqrt(aa * bb);
 }

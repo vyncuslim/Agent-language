@@ -81,7 +81,7 @@ ConceptSourceRecord stream
         ↓
 HMAC-derived private concept identities
         ↓
-50k-concept encrypted shards (configurable)
+hash-partitioned encrypted shards + pinned encrypted catalog
         ↓
 authorized agent runtime
 ```
@@ -105,17 +105,7 @@ The result can contain concepts that have no public human word at all.
 
 ## Scale
 
-The reference `build-world-lexicon.ts` defaults to 50,000 concepts per encrypted shard. There is no protocol-level maximum number of shards.
-
-Examples of deployment scale:
-
-```text
-20 shards     ≈ 1,000,000 concepts
-200 shards    ≈ 10,000,000 concepts
-2,000 shards  ≈ 100,000,000 concepts
-```
-
-These are capacity examples, not claims that the repository already contains that number of real-world concepts.
+The builder routes secret-derived IDs into 256 buckets, capped at 50,000 concepts per bucket. It reuses the bounded encrypted staging, cross-batch deduplication, catalog pinning and lazy loading architecture in VOCABULARY-0.2.md. One million synthetic concepts have been measured; larger deployments need a versioned multi-level catalog rather than an unbounded flat manifest.
 
 ## Agent visibility
 
@@ -141,10 +131,8 @@ VAML therefore targets **opaque-by-default machine communication**, not an impos
 
 From `sdk/typescript`:
 
-```bash
-VAML_SEMANTIC_KEY=<base64url-32-byte-secret> \
-VAML_PACK_KEY=<base64url-32-byte-secret> \
-npm run world-pack -- /secure/world.sorted.jsonl /secure/out/world 50000
+```sh
+npm run pack:world -- /secure/world.sorted.jsonl /secure/packs 1
 ```
 
-The output is encrypted `.vocab.json` shards plus a private shard manifest. The repository `.gitignore` and privacy lint intentionally reject those production artifacts if somebody tries to commit them.
+Provision VAML_SEMANTIC_KEY and VAML_PACK_KEY through a private environment/secret manager. The third argument is the trusted catalog revision, not a shard size. Output is encrypted .vocab shards and an encrypted content-addressed catalog. Human aliases remain in private ingestion and are stripped before runtime packs are written.
