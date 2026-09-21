@@ -15,4 +15,5 @@ export * from "./compiler.js";
 export * from "./vocabulary.js";
 export * from "./transport.js";
 export * from "./conversation.js";
+export * from "./agent-bridge.js";
 export * from "./ingestion.js";
