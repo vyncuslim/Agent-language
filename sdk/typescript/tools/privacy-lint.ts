@@ -17,17 +17,24 @@ const forbiddenFilePatterns: RegExp[] = [
   /(^|\/)private-corpus(\/|$)/i,
   /(^|\/)corpus-private(\/|$)/i,
   /(^|\/)alignment-map(\/|$)/i,
+  /(^|\/)alignment-shards(\/|$)/i,
   /(^|\/)source-pack-private(\/|$)/i,
+  /(^|\/)source-snapshots(\/|$)/i,
+  /(^|\/)private-build(\/|$)/i,
   /\.private\.jsonl$/i,
   /\.world(?:\.sorted)?\.jsonl$/i,
   /\.corpus(?:\.sorted)?\.jsonl$/i,
   /\.corpus\.manifest\.json$/i,
   /\.corpus\.sources\.json$/i,
   /\.sourcepack\.jsonl$/i,
+  /\.snapshot\.private\.jsonl$/i,
   /\.extract\.private\.jsonl$/i,
   /\.alignment\.private\.jsonl$/i,
   /\.sources\.private\.json$/i,
   /\.alignment\.private\.json$/i,
+  /\.alignment\.manifest\.json$/i,
+  /\.build-plan\.json$/i,
+  /\.build\.receipt\.json$/i,
   /\.vocab\.json$/i,
   /\.vocab$/i,
   /\.compiled\.vaml$/i,
@@ -60,6 +67,11 @@ const forbiddenContentPatterns: Array<{ name: string; pattern: RegExp }> = [
     name: "committed private source-pack alignment table",
     pattern:
       /["'](?:sourceSenseId|synset|wikidataId)["']\s*:\s*["'][^"']+["'][\s\S]{0,200}["']alignmentKey["']\s*:\s*["'][^"']+["']/i,
+  },
+  {
+    name: "committed populated private alignment shard",
+    pattern:
+      /["']entries["']\s*:\s*\{\s*["'][A-Za-z0-9_-]{43}["']\s*:\s*["'][^"']{4,}["']/i,
   },
 ];
 
@@ -115,7 +127,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    "VAML privacy lint passed: no committed private lexicon/corpus/source-pack artifacts, keys, alignment maps, or fixed public word/opcode tables detected.",
+    "VAML privacy lint passed: no committed private lexicon/corpus/source-pack/build artifacts, keys, alignment maps, or fixed public word/opcode tables detected.",
   );
 }
 
