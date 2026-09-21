@@ -11,16 +11,18 @@
   "entrypoints": {
     "agent_instructions": "AGENTS.md",
     "specification": "spec/VAML-0.2.md",
+    "vocabulary_architecture": "spec/VOCABULARY-0.2.md",
     "typescript_runtime": "sdk/typescript/src/index.ts",
     "vaml_compiler": "sdk/typescript/src/compiler.ts",
+    "semantic_index": "sdk/typescript/src/semantic-index.ts",
     "vocabulary_builder": "sdk/typescript/tools/build-private-lexicon.ts",
     "agent_pair_demo": "sdk/typescript/examples/agent-pair-demo.ts",
-    "legacy_0_1_registry": "registry/vaml-core-0.1.json",
-    "legacy_0_1_spec": "spec/VAML-0.1.md"
+    "runtime_tests": "sdk/typescript/test/runtime.test.ts"
   },
   "learning_order": [
     "AGENTS.md",
     "spec/VAML-0.2.md",
+    "spec/VOCABULARY-0.2.md",
     "sdk/typescript/src/types.ts",
     "sdk/typescript/src/lexicon.ts",
     "sdk/typescript/src/semantic-index.ts",
@@ -57,7 +59,7 @@
   "compatibility": {
     "major": 0,
     "minor": 2,
-    "v0_1": "legacy-only-explicit-bridge",
+    "v0_1": "retired-and-not-decodable-by-v0_2",
     "missing_private_pack": "reject",
     "unknown_session_code": "reject",
     "semantic_guessing": "forbidden"
