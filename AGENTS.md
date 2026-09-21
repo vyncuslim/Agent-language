@@ -6,7 +6,7 @@ This file is the machine-facing loading contract for AI agents, coding agents, o
 
 Learn VAML as an **opaque machine-semantic protocol**, not as a human language and not as a public table of English/Chinese/etc. words mapped to opcodes.
 
-The public repository contains runtime rules, cryptographic negotiation, compiler behavior, corpus/lexicon ingestion, source-pack adapters, agent-learning interfaces, tests, and safety rules. Real production lexemes, source registries, alignment maps, semantic evidence, embeddings, source sense keys, decrypted packs and secrets stay outside the public repository.
+The public repository contains runtime rules, cryptographic negotiation, compiler behavior, corpus/lexicon ingestion, source-pack adapters, offline build-runner code, agent-learning interfaces, tests, and safety rules. Real production lexemes, source registries, snapshots, alignment maps, semantic evidence, embeddings, source sense keys, sorted corpus rows, build receipts, decrypted packs and secrets stay outside the public repository.
 
 ## Required loading order
 
@@ -16,13 +16,14 @@ The public repository contains runtime rules, cryptographic negotiation, compile
 4. Load `spec/WORLD-LEXICON-0.2.md`.
 5. Load `spec/WORLD-SEMANTIC-CORPUS-0.1.md`.
 6. Load `spec/CORPUS-SOURCE-PACK-1.md`.
-7. Load `spec/AGENT-LEARNING-0.2.md`.
-8. Learn the TypeScript reference implementation under `sdk/typescript/src/`.
-9. Load only authorized encrypted `.vocab` packs supplied by the deployment runtime.
-10. Build a `PrivateSemanticIndex` from decrypted packs.
-11. Attach `AgentSemanticLearner` or an equivalent model adapter.
-12. Negotiate a fresh peer session and derive the session-local codebook.
-13. Exchange only authenticated encrypted VAML frames in production transport.
+7. Load `spec/PRIVATE-CORPUS-RUNNER-0.1.md`.
+8. Load `spec/AGENT-LEARNING-0.2.md`.
+9. Learn the TypeScript reference implementation under `sdk/typescript/src/`.
+10. Load only authorized encrypted `.vocab` packs supplied by the deployment runtime.
+11. Build a `PrivateSemanticIndex` from decrypted packs.
+12. Attach `AgentSemanticLearner` or an equivalent model adapter.
+13. Negotiate a fresh peer session and derive the session-local codebook.
+14. Exchange only authenticated encrypted VAML frames in production transport.
 
 Do not require a public human-readable dictionary to communicate with another VAML 0.2 agent.
 
@@ -31,13 +32,19 @@ Do not require a public human-readable dictionary to communicate with another VA
 ```text
 licensed/open/private source material
              ↓
+     private source snapshot
+             ↓
+      checksum verification
+             ↓
       source-pack adapter
              ↓
    SourcePack1Candidate
              ↓
-    private sense aligner
+ opaque lookup ID + private alignment
              ↓
       private alignmentKey
+             ↓
+ bounded sort / exact dedupe
              ↓
  WorldSemanticCorpusAssembler
              ↓
@@ -72,7 +79,7 @@ Source Pack 1 is the first concrete ingestion layer for five categories:
 
 External source identifiers such as a WordNet synset, Wiktionary sense ID, UniMorph lemma/form record, or Wikidata QID are **provenance identities, not VAML opcodes**.
 
-Every Source Pack 1 candidate MUST pass through a private `PrivateSenseAligner` before it becomes a `CorpusRow`. Do not expose the aligner's mapping in the public repository.
+Every Source Pack 1 candidate MUST pass through a private semantic alignment layer before it becomes a `CorpusRow`. Do not expose the alignment mapping in the public repository.
 
 ### License gates
 
@@ -84,6 +91,29 @@ Never infer that a downloadable source is unrestricted.
 - Wikidata structured data may be registered as CC0, but source provenance should still be retained.
 
 VAML is not a mechanism for bypassing source licenses.
+
+## Private Corpus Build Runner 0.1
+
+Production corpus builds SHOULD use `Private Corpus Build Runner 0.1` rather than manually copying plaintext corpus files through the public repository.
+
+The runner MUST:
+
+1. consume only explicitly prepared private source snapshots;
+2. verify snapshot, source-manifest, alignment-manifest and alignment-shard SHA-256 digests;
+3. reject sources that are missing, disabled, or have unresolved placeholder license text;
+4. derive opaque candidate lookup IDs instead of publishing source-word mappings;
+5. resolve those IDs through private sharded alignment data;
+6. default to fail-closed behavior when an alignment is missing;
+7. apply the configured deterministic quality gate;
+8. sort large corpora with bounded memory using private temporary chunks;
+9. remove exact duplicate normalized rows during merge;
+10. stream the sorted corpus through `WorldSemanticCorpusAssembler`;
+11. produce encrypted `.vocab` shards, a private corpus manifest, and a private build receipt;
+12. refuse sensitive paths that resolve inside the public repository.
+
+The runner does **not** scrape or download sources automatically. Acquisition, source-specific extraction and semantic alignment remain explicit private preprocessing steps.
+
+Production build plans, snapshots, alignment manifests/shards, plaintext sorted corpus files, corpus manifests, encrypted production packs and build receipts MUST remain outside Git history.
 
 ## World Semantic Corpus behavior
 
@@ -205,7 +235,7 @@ In sealed mode:
 - do not emit semantic labels into ordinary logs;
 - do not automatically translate every received concept to prose;
 - do not persist decrypted private packs unless explicitly authorized;
-- do not expose semantic keys, pack keys, source registries, alignment maps or plaintext corpus rows;
+- do not expose semantic keys, pack keys, source registries, snapshots, alignment maps or plaintext corpus rows;
 - keep human-facing adapters outside the peer transport path;
 - discard ephemeral session material when a session ends where the runtime permits it.
 
@@ -220,21 +250,25 @@ cd sdk/typescript
 npm run privacy
 ```
 
-The privacy lint rejects common production lexicon/corpus/source-pack filenames, corpus manifests, vocabulary packs, key material, private alignment tables, decrypted private lexicon payloads, and obvious fixed public word-to-opcode registries.
+The privacy lint rejects common production lexicon/corpus/source-pack/build filenames, source snapshots, build plans/receipts, alignment artifacts, vocabulary packs, key material, decrypted private lexicon payloads, and obvious fixed public word-to-opcode registries.
 
 CI MUST run the privacy lint before build/tests.
 
-## Corpus build contract
+## Corpus build contracts
 
-The private corpus builder is invoked as:
+Low-level pre-sorted corpus builder:
 
 ```text
 npm run corpus-pack -- <private-sources.json> <private-corpus.sorted.jsonl> <output-prefix> [chunk-size]
 ```
 
-The deployment MUST provide 32-byte base64url `VAML_SEMANTIC_KEY` and `VAML_PACK_KEY` environment secrets outside Git history.
+Preferred production-oriented offline runner:
 
-The builder produces encrypted vocabulary shards plus a private corpus manifest. These outputs are deployment artifacts, not public repository assets.
+```text
+npm run private-corpus-run -- <private-build-plan.json>
+```
+
+Both require 32-byte base64url `VAML_SEMANTIC_KEY` and `VAML_PACK_KEY` environment secrets outside Git history. The build plan MUST NOT contain these secrets.
 
 ## `.vaml` machine IR
 
@@ -256,7 +290,7 @@ An agent is VAML-capable when it can reliably perform:
 ```text
 source observation / model state
 → source candidate
-→ private semantic alignment
+→ verified private semantic alignment
 → private concept ID
 → session code
 → encrypted VAML frame
