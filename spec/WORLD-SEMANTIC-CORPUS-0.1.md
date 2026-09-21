@@ -138,6 +138,16 @@ Before compilation, private preprocessing must align source senses to a shared `
 
 One surface form may resolve to many concepts. One concept may contain aliases in many languages.
 
+## Stable private concept identity
+
+Corpus concepts use optional private `identityMaterial` when deriving `conceptId`.
+
+For World Semantic Corpus records, the identity material contains the private cross-source `alignmentKey`. It is HMAC-derived with `VAML_SEMANTIC_KEY` and is **not copied into the compiled concept record**.
+
+This means the same aligned concept can keep its private `conceptId` when its domains, source evidence, aliases, relations, or embeddings are enriched later.
+
+Legacy VAML 0.2 records that do not provide `identityMaterial` continue using the original `semantic + domains` identity derivation, preserving compatibility.
+
 ## Streaming and scale
 
 Input JSONL MUST be grouped and sorted ascending by `alignmentKey`.
@@ -162,7 +172,7 @@ Source-specific semantic records may be attached as private `semanticEvidence`.
 
 The assembler preserves that evidence inside encrypted concept metadata together with provenance. It does not publish the evidence as a stable word/opcode table.
 
-The stable semantic identity used by the current corpus layer is a private alignment reference plus the concept's private domain set. Rich evidence can evolve without needing a readable public registry.
+Rich evidence can evolve without changing the stable corpus identity, as long as the private alignment identity remains the same.
 
 ## Embeddings
 
@@ -171,8 +181,9 @@ Rows may contain vectors only when their embedding space is identified by `embed
 For one concept:
 
 - vectors from one common embedding space may be centroid-merged;
-- vectors from incompatible spaces are recorded in provenance metadata but are not blindly averaged into one public/runtime vector;
-- inconsistent dimensions inside one mergeable space are rejected.
+- when exactly one vector space exists, its centroid may become the primary runtime `embedding`;
+- when multiple incompatible spaces exist, their centroids remain separated inside encrypted corpus metadata and are not blindly averaged;
+- inconsistent dimensions inside one embedding space are rejected.
 
 Production systems with very large concept spaces should connect the agent learning layer to an ANN/vector database rather than relying on linear scans.
 
@@ -237,6 +248,7 @@ A corpus build is suitable for VAML when it can:
 - preserve multilingual ambiguity rather than collapsing all words into one meaning;
 - include lexical and non-lexical concepts;
 - retain encrypted provenance and machine-semantic evidence;
+- keep concept identities stable as evidence and domains evolve;
 - stream to encrypted shards at large scale;
 - load into an authorized semantic index and learner;
 - participate in session-local VAML negotiation without creating stable public word IDs.
