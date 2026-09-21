@@ -5,6 +5,7 @@ export * from "./semantic-index.js";
 export * from "./world-lexicon.js";
 export * from "./corpus.js";
 export * from "./source-adapter.js";
+export * from "./source-pack-1.js";
 export * from "./learning.js";
 export * from "./negotiation.js";
 export * from "./runtime.js";
