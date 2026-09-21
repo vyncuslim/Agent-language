@@ -39,8 +39,11 @@ export function compileConcepts(
     seen.add(id);
     output.push({
       conceptId: id,
+      semantic: record.semantic,
+      aliases: record.aliases,
       domains: [...(record.domains ?? [])].sort(),
       relations: record.relations,
+      embedding: record.embedding,
       metadata: record.metadata,
     });
   }
