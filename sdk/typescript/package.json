@@ -22,7 +22,8 @@
     "check": "npm run build && npm test && npm run demo && npm run privacy:lint",
     "privacy": "tsx tools/privacy-lint.ts ../..",
     "world-pack": "tsx tools/build-world-lexicon.ts",
-    "corpus-pack": "tsx tools/build-world-semantic-corpus.ts"
+    "corpus-pack": "tsx tools/build-world-semantic-corpus.ts",
+    "private-corpus-run": "tsx tools/run-private-corpus-build.ts"
   },
   "dependencies": {
     "csv-parse": "^7.0.2"
