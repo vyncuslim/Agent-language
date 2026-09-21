@@ -14,6 +14,12 @@ export enum ValueType {
 export interface ConceptSourceRecord {
   /** Private canonical semantic descriptor. Never required on the wire. */
   semantic: unknown;
+  /**
+   * Optional private stable identity material used only when deriving conceptId.
+   * When omitted, VAML keeps the legacy 0.2 identity derivation from semantic + domains.
+   * This field is intentionally not copied into CompiledConceptRecord.
+   */
+  identityMaterial?: unknown;
   /** Optional human-language aliases used only by import/export adapters. */
   aliases?: Record<string, string[]>;
   relations?: Record<string, string[]>;
