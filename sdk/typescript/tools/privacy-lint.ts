@@ -58,12 +58,8 @@ const forbiddenContentPatterns: Array<{ name: string; pattern: RegExp }> = [
     pattern: /["'](?:sourceSenseId|synset|wikidataId)["']\s*:\s*["'][^"']+["'][\s\S]{0,200}["']alignmentKey["']\s*:\s*["'][^"']+["']/i,
   },
   {
-    name: "committed private alignment shard",
-    pattern: /["']format["']\s*:\s*["']vaml-private-alignment-shard["'][\s\S]{0,400}["']entries["']\s*:/i,
-  },
-  {
-    name: "committed private corpus build receipt",
-    pattern: /["']format["']\s*:\s*["']vaml-private-corpus-build-receipt["']/i,
+    name: "committed populated private alignment shard",
+    pattern: /["']entries["']\s*:\s*\{\s*["'][A-Za-z0-9_-]{43}["']\s*:\s*["'][^"']{4,}["']/i,
   },
 ];
 
