@@ -8,8 +8,15 @@ const forbiddenFilePatterns: RegExp[] = [
   /(^|\/)private-lexicon(\/|$)/i,
   /(^|\/)private-vocab(\/|$)/i,
   /(^|\/)world-lexicon(\/|$)/i,
+  /(^|\/)private-corpus(\/|$)/i,
+  /(^|\/)corpus-private(\/|$)/i,
+  /(^|\/)alignment-map(\/|$)/i,
   /\.private\.jsonl$/i,
   /\.world(?:\.sorted)?\.jsonl$/i,
+  /\.corpus(?:\.sorted)?\.jsonl$/i,
+  /\.corpus\.manifest\.json$/i,
+  /\.sources\.private\.json$/i,
+  /\.alignment\.private\.json$/i,
   /\.vocab\.json$/i,
   /\.vocab\.key$/i,
   /\.semantic\.key$/i,
@@ -80,7 +87,9 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  console.log("VAML privacy lint passed: no committed private lexicon payloads, keys, or fixed public word/opcode tables detected.");
+  console.log(
+    "VAML privacy lint passed: no committed private lexicon/corpus artifacts, keys, or fixed public word/opcode tables detected.",
+  );
 }
 
 main().catch((error) => {
