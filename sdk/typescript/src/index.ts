@@ -17,4 +17,6 @@ export * from "./transport.js";
 export * from "./conversation.js";
 export * from "./agent-bridge.js";
 export * from "./acoustic.js";
+export * from "./acoustic-live.js";
+export * from "./acoustic-browser.js";
 export * from "./ingestion.js";
