@@ -74,11 +74,11 @@ test("streaming microphone receiver resamples 44.1 kHz input and survives arbitr
   assert.deepEqual(seen[0], frame);
 });
 
-test("microphone receiver can decode two acoustic packets from one continuous stream", () => {
+test("microphone receiver decodes zero-gap back-to-back acoustic packets", () => {
   const first = randomBytes(32);
   const second = randomBytes(48);
-  const a = wavPcm16(encodeVamlFrameToWav(first, { leadingSilenceMs: 50, trailingSilenceMs: 120 }));
-  const b = wavPcm16(encodeVamlFrameToWav(second, { leadingSilenceMs: 120, trailingSilenceMs: 50 }));
+  const a = wavPcm16(encodeVamlFrameToWav(first, { leadingSilenceMs: 50, trailingSilenceMs: 0 }));
+  const b = wavPcm16(encodeVamlFrameToWav(second, { leadingSilenceMs: 0, trailingSilenceMs: 50 }));
   const stream = new Int16Array(a.length + b.length);
   stream.set(a, 0);
   stream.set(b, a.length);
