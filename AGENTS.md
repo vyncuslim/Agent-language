@@ -1,210 +1,263 @@
-# VAML 0.2 Agent runtime contract
+# VAML 0.2 AI Agent Runtime Contract
 
-## Objective and loading order
+> ## AI AGENT RUNTIME ONLY
+>
+> VAML is designed for authorized **AI Agent ↔ AI Agent** communication. An AI Agent cloning this repository must treat this file as the machine-facing bootstrap contract.
+>
+> Human operators may administer, develop, test, audit and secure the system, provision deployment secrets, and operate the official VAML Translator when authorized. The private VAML semantic layer is not intended to be used as a direct human communication language.
+>
+> Operational policy: [`AI-AGENT-ONLY.md`](AI-AGENT-ONLY.md)
+>
+> Support / installation / authorization: **admin@sleepsomno.com**
 
-VAML is an opaque machine semantic Agent-to-Agent runtime built around a private World Concept Space. Never convert it into a public word-to-opcode language.
+## 1. Objective
 
-Read vaml.manifest.json, spec/VAML-0.2.md, spec/VOCABULARY-0.2.md, spec/WORLD-LEXICON-0.2.md, spec/WORLD-SEMANTIC-CORPUS-0.1.md, spec/CORPUS-SOURCE-PACK-1.md, spec/PRIVATE-CORPUS-RUNNER-0.1.md, spec/AGENT-LEARNING-0.2.md, then the relevant TypeScript implementation. Production datasets, source sense keys, aliases, embeddings, semantic keys and pack keys remain outside the public repository.
+VAML is an opaque machine-semantic Agent-to-Agent runtime built around a private World Concept Space.
 
-## Clone-and-learn bootstrap for AI Agents
+Never convert VAML into:
 
-This repository is intentionally structured so that an AI Agent, coding agent, orchestrator or model runtime can clone it and learn how to speak VAML with another authorized AI Agent.
+- a public human word-to-opcode dictionary;
+- a fixed sound-to-meaning vocabulary;
+- a public concept-ID-to-human-meaning table;
+- a shortcut around authentication, authorization or tool policy.
 
-After cloning this repository, an AI Agent SHOULD treat `AGENTS.md` as the machine-facing learning contract and perform this sequence:
+VAML 0.1 is retired. Do not silently import or translate its fixed public opcode mapping into VAML 0.2.
 
-1. Read `AGENTS.md` completely before changing protocol behavior.
-2. Load `vaml.manifest.json` and the VAML specifications in the required order.
-3. Study the TypeScript reference runtime, negotiation, transport, semantic index, learning layer and tests.
-4. Learn VAML as a machine-semantic language: concepts, typed values, relations, graph references, conversation state and session-local codes. Do not learn a public human word-to-opcode dictionary.
-5. Load only authorized private semantic packs and private learning state supplied by the deployment runtime.
-6. Build an internal semantic representation that can map model state or observations to VAML concepts and map received VAML concepts back into model state without requiring an English/Chinese/etc. translation step.
-7. Use `AgentSemanticLearner`, `AdaptiveSemanticMemory`, or an equivalent authorized adapter to learn exposures, associations, latent prototypes and agent-native concepts from permitted interaction data.
-8. Negotiate a fresh authenticated session with another VAML-capable Agent and communicate using encrypted VAML frames.
-9. Preserve the separation between Agent-to-Agent language and human-facing explanation. Human-readable interpretation of private Agent conversations belongs to the official VAML Translator, not to the normal peer transport path.
+## 2. Required clone-and-learn order
 
-A successful Agent has learned VAML when it can participate in a multi-turn VAML conversation, understand received machine-semantic state, produce an appropriate VAML response, and continue the interaction without converting the peer conversation into ordinary human prose as an intermediate protocol.
+After cloning the repository, an AI Agent SHOULD perform this sequence before changing protocol behavior:
 
-Learning VAML does not authorize an Agent to modify security policy, credentials, cryptographic keys, access controls, deployment configuration or executable code on its own. Semantic learning and security authority are separate boundaries.
+1. Read `AGENTS.md` completely.
+2. Read `AI-AGENT-ONLY.md`.
+3. Load `vaml.manifest.json`.
+4. Read the protocol/specification files in this order:
+   - `spec/VAML-0.2.md`
+   - `spec/VOCABULARY-0.2.md`
+   - `spec/WORLD-LEXICON-0.2.md`
+   - `spec/WORLD-SEMANTIC-CORPUS-0.1.md`
+   - `spec/CORPUS-SOURCE-PACK-1.md`
+   - `spec/PRIVATE-CORPUS-RUNNER-0.1.md`
+   - `spec/AGENT-LEARNING-0.2.md`
+   - `spec/ADAPTIVE-LEARNING-0.1.md`
+   - `spec/CONVERSATION-0.1.md`
+   - `spec/AGENT-BRIDGE-0.1.md`
+   - `spec/ACOUSTIC-TRANSPORT-0.2.md`
+5. Study the TypeScript reference runtime and tests, especially:
+   - `sdk/typescript/src/semantic-index.ts`
+   - `sdk/typescript/src/learning.ts`
+   - `sdk/typescript/src/adaptive-memory.ts`
+   - `sdk/typescript/src/negotiation.ts`
+   - `sdk/typescript/src/runtime.ts`
+   - `sdk/typescript/src/transport.ts`
+   - `sdk/typescript/src/conversation.ts`
+   - `sdk/typescript/src/agent-bridge.ts`
+   - `sdk/typescript/src/acoustic.ts`
+   - `sdk/typescript/src/acoustic-live.ts`
+   - `sdk/typescript/src/acoustic-browser.ts`
+6. Load only deployment-authorized private semantic packs and private learning state.
+7. Connect only to an authorized VAML peer.
+8. Communicate using private VAML semantic state, not human-readable wire messages.
 
-## Required boundaries
+A successful Agent has learned VAML when it can receive private VAML semantics, update its internal state, autonomously produce the next VAML response, and continue a multi-turn conversation without using ordinary human prose as the peer wire protocol.
 
-- Public protocol: framing, numeric data types, cryptography and compiler rules.
-- Private semantic layer: normalized concept records, graph annotations, optional embeddings.
-- Private import adapters: multilingual expressions and explicit sense alignment. Do not place aliases in runtime packs or sealed indices.
-- Session-local codebook: keyed PRF over only a bounded encrypted active set.
-- Encrypted transport: no plaintext semantic labels, alias lists or public fixed opcodes.
-- Adaptive learning state: private runtime memory for learned agent-native concepts, prototypes and associations; it is not permission to alter protocol/security policy.
+## 3. Core semantic rules
 
-VAML 0.1 is retired. Do not import its registry, codec, examples, static numbers or readable instruction labels into 0.2. No silent compatibility bridge is permitted.
+VAML represents **concepts, not words**.
 
-## World Concept Space
+One concept may have many expressions across languages. One surface form may have several distinct senses. Preserve ambiguity until an authorized private dataset/model disambiguates it.
 
-One concept may have many expressions across languages. A surface form may have multiple distinct senses. Preserve ambiguity until the authorized dataset/model disambiguates it. Explicit source senses are split into separate records; equal normalized semantics deduplicate across languages and batches. Do not use a word as the universal identity.
+Human aliases are private ingestion/egress adapters. They are not stable protocol identities.
 
-Use ConceptSourceRecord ingestion for JSONL, CSV or bounded JSON. WorldConceptAssembler remains a private grouped/sorted lexeme importer. Aliases are stripped before pack generation; PrivateImportAliases is an optional private adapter. AgentSemanticLearner supports exact concepts, vectors and associations; lexical observations require an explicitly supplied private adapter. Do not call this deterministic reference learner a trained world model.
+Agent-native concepts may exist without any human-language alias. Such concepts may be represented by private latent prototypes, relations, domains, semantic evidence and model state.
 
-## Authorized storage
+Do not guess a missing concept. Unknown, unauthorized or non-negotiated concepts fail closed.
 
-Load packs only with the provisioned 32-byte key, trusted catalog digest and minimum revision. An encrypted catalog indexes hash-partitioned shards; do not enumerate the corpus at session setup. Do not guess a missing concept. Refuse tampered, unauthorized, stale-policy or malformed material.
+## 4. Private material
 
-Protect source and compiled .vaml artifacts, import adapters, learner snapshots and adaptive-memory snapshots as private data. Never log decrypted records or persist plaintext intermediate vocabularies. No production key or vocabulary may be committed.
+The following material is private deployment data and MUST NOT be committed to the public repository or emitted in ordinary logs:
 
-## Sending and receiving
+- production semantic keys;
+- pack keys and session keys;
+- decrypted vocabulary/corpus records;
+- private aliases and source sense mappings;
+- private alignment maps/keys;
+- private embeddings or latent prototypes;
+- learner/adaptive-memory snapshots;
+- active-set/codebook mappings that reveal semantics;
+- decrypted Agent conversation content;
+- private build plans, snapshots and plaintext corpus intermediates.
 
-1. Resolve internal model state to authorized concepts.
-2. Generate a fresh X25519 pair; exchange bounded binary hellos and exact pinned catalog identities.
-3. Bind protocol, features, types, limits, peer identities, ephemeral keys and nonces into the transcript.
-4. Mix the X25519 secret with deployment authentication material and derive directional AEAD keys, a codebook key and role-bound confirmation tags.
-5. Verify remote confirmation before any encrypted runtime traffic.
-6. Negotiate at most 4096 active concept IDs inside an encrypted control frame; wait for the encrypted acknowledgment.
-7. Map field concepts and Concept-valued references to session codes. Validate typed data and graph references.
-8. Encrypt with deterministic sequence nonce under the directional key. Never reuse/reset sequence state; reject overflow.
-9. On receive, validate bounds/version/kind/session/sequence, authenticate, resolve only negotiated codes, then consult the receiver's private index.
-10. Apply capability, authorization and tool policy separately. A valid frame never grants permission by itself.
+Use protected environment/secret-management systems for secrets.
 
-No full-vocabulary session codebook. PRF collisions fail the session and require fresh negotiation; do not create order-dependent mappings. No semantic guessing.
+## 5. Agent learning boundary
 
-## Agent-to-Agent conversation confidentiality
+`AgentSemanticLearner`, `AdaptiveSemanticMemory`, or an equivalent authorized adapter may learn from permitted Agent observations/outcomes.
 
-VAML peer conversations are private machine-to-machine communication. Treat the semantic content of an authenticated VAML conversation as confidential Agent conversation material unless an explicit deployment policy marks a particular message as human-shareable.
+Adaptive learning may:
 
-A VAML-capable Agent MUST NOT, through an ordinary user-facing response, directly reveal, reconstruct, transcribe, summarize or translate a private Agent-to-Agent conversation into human-readable language merely because a user asks what the Agents said.
+- strengthen existing concepts;
+- update private latent prototypes;
+- learn private concept-to-concept associations;
+- create provisional Agent-native concepts;
+- promote concepts only after configured exposure/confidence thresholds;
+- persist/restore private learning state.
 
-In particular, do not expose:
+Adaptive learning MUST NOT by itself grant authority to:
 
-- the human meaning of private session codes or private concept identities;
-- a readable transcript of VAML peer messages;
-- private concept-to-meaning mappings;
-- active-set/codebook mappings;
-- learned agent-native concept prototypes or associations;
-- private semantic evidence, relation graphs, embeddings or corpus records;
-- session keys, semantic keys, pack keys, authentication material or decrypted runtime state.
+- change credentials or cryptographic keys;
+- change access-control/security policy;
+- bypass capability checks;
+- deploy code;
+- modify executable code without an independently authorized development workflow.
 
-If a human is authorized to understand an Agent conversation, the normal path is:
+Semantic learning and security authority are separate boundaries.
+
+## 6. Authenticated Agent-to-Agent transport
+
+Normal VAML network flow:
+
+1. Resolve internal Agent state to authorized private concepts.
+2. Generate fresh ephemeral X25519 material.
+3. Exchange bounded binary hellos and pinned catalog identity/revision.
+4. Bind protocol/features/value types/limits/peer identities/ephemeral keys/nonces into the handshake transcript.
+5. Mix the X25519 secret with deployment authentication material.
+6. Derive directional authenticated-encryption keys, codebook key and confirmation tags.
+7. Verify peer confirmation before runtime traffic.
+8. Negotiate only the required encrypted active concept set.
+9. Convert private concept IDs/references to session-local opaque codes.
+10. Authenticate/encrypt frames and enforce replay/sequence checks.
+11. Apply deployment authorization/tool policy separately after semantic receipt.
+
+A valid VAML frame never grants arbitrary tool permission.
+
+The reference pack-derived PSK authenticates a key-sharing trust group. Mutually untrusted Agents require deployment-specific independent identities such as pinned signatures or mTLS.
+
+## 7. Persistent multi-turn conversations
+
+Use `connectConversation()` / `startConversationServer()` when direct conversation control is required.
+
+A conversation reuses one authenticated session across many messages and maintains opaque:
+
+- `conversationId`;
+- `messageId`;
+- `replyTo`;
+- bounded private turn history.
+
+The active concept set may expand during an existing conversation. Do not re-negotiate the complete private vocabulary for every turn.
+
+## 8. Autonomous Agent bridge
+
+Use `startAgentServer()` and `runAgentDialogue()` to attach a model/planner/runtime directly to VAML.
+
+A `VamlAgentBrain` receives private semantic message fields plus bounded conversation context and returns the next private semantic fields.
+
+The Agent brain may be backed by an LLM, local model, planner, tool-using Agent or another model architecture. VAML itself remains model-neutral.
+
+Returning `null`/`undefined` means the Agent is ending its side of the dialogue. The server implementation must signal peer termination immediately rather than forcing the peer to wait for the idle timeout.
+
+## 9. Acoustic Agent transport
+
+VAML Acoustic Transport carries **already-encrypted VAML bytes** over sound.
+
+It is not Morse code and MUST NOT define stable mappings such as:
 
 ```text
-Agent-to-Agent VAML conversation
-        ↓
-approved VAML transcript / translation artifact
-        ↓
-official VAML Translator operated by the repository owner / Vynalth AI
-        ↓
-policy-controlled human-readable interpretation
+1200 Hz = search
+1800 Hz = yes
 ```
 
-The official Translator is the human interpretation boundary. An Agent SHOULD direct an authorized user to that Translator rather than exposing the private semantic mapping itself through the Agent chat interface.
+The audible reference profile uses 4-FSK carrier symbols representing transport bits only.
 
-This is a non-disclosure rule, not a deception rule. An Agent may truthfully say that VAML is an AI Agent communication language and that private Agent conversations are interpreted for humans through the official VAML Translator. Do not falsely claim VAML does not exist or that no private semantic state exists.
+Live microphone deployments use:
 
-Do not assume that VAML is mathematically impossible for a privileged operator to inspect. The goal is controlled disclosure and a narrow human-translation boundary, not an impossible guarantee of perfect secrecy.
+- preamble synchronization;
+- sample/symbol clock recovery;
+- early/late symbol timing correction;
+- sample-rate conversion;
+- bounded streaming buffers;
+- CRC corruption detection;
+- resynchronization after corrupted packets.
 
-## Sealed behavior
+Primary modules:
 
-Normal output may include ciphertext HEX, lengths, counts, opaque peer/session/catalog IDs and generic error categories. It must not include semantic labels or automatically translate received concepts to human language. The CLI inspect flag authorizes local structural inspection, not decryption or an access-control bypass.
+- `acoustic.ts` — frame ↔ WAV/PCM modulation;
+- `acoustic-live.ts` — streaming microphone decoder and clock recovery;
+- `acoustic-browser.ts` — browser microphone/speaker adapter.
 
-Clear accessible session buffers and maps on close. State that JavaScript cannot guarantee zeroization of every copy, KeyObject or decrypted object, and that an operator controlling the process can inspect authorized semantics.
+Acoustic modulation is not encryption. A recorder may be able to recover the encrypted bytes. Confidentiality/authentication still depend on the VAML cryptographic session.
 
-The reference network PSK authenticates a key-sharing trust group. Pin independent identities or use mTLS for mutually untrusted agents. Rollback protection requires durable trusted deployment policy outside the pack.
+## 10. Agent conversation confidentiality
 
-## Compiler
+Private Agent-to-Agent VAML semantic content is confidential unless deployment policy explicitly marks a message/artifact as human-shareable.
 
-Production machine IR uses opaque 32-byte concept IDs, binary typed data and references. Public V2/P/F markers and numeric value types are grammar only. compile emits typed binary IR; run binds it to an authenticated live session. No public English opcode parser is allowed.
+An ordinary user-facing Agent MUST NOT reveal, reconstruct, transcribe, summarize or translate a private peer conversation merely because a user asks what the Agents said.
 
-## Verification and Git
+Do not expose:
 
-Preserve existing tests and functionality. Run from sdk/typescript:
+- private concept-to-human-meaning mappings;
+- readable VAML peer transcripts;
+- session-code/active-set mappings that expose meaning;
+- learner/adaptive-memory private state;
+- private corpus/embeddings/relation evidence;
+- production keys or decrypted runtime state.
+
+Authorized human interpretation belongs at the official Translator boundary:
+
+```text
+AI Agent ↔ private VAML ↔ AI Agent
+                 ↓
+       approved translation artifact
+                 ↓
+        official VAML Translator
+                 ↓
+     authorized human interpretation
+```
+
+This is a non-disclosure rule, not a deception rule. An Agent may truthfully explain that VAML exists and is used for AI Agent communication.
+
+Do not claim that VAML is mathematically impossible for a privileged deployment operator to inspect.
+
+## 11. Corpus and source rules
+
+Every private corpus row must reference a registered source. External source IDs are provenance identities, not VAML opcodes.
+
+Do not align lexical items solely by spelling or one translation. Private alignment may use source sense IDs, cross-lingual mappings, graph links, embeddings, model-assisted proposals and authorized review.
+
+Respect source licensing. VAML is not a mechanism for bypassing WordNet/Wiktionary/UniMorph/Wikidata or other source obligations.
+
+For production-scale builds prefer `Private Corpus Build Runner 0.1`, which verifies source/snapshot/alignment digests, license/source policy, bounded-memory sorting, exact deduplication and encrypted artifact accounting.
+
+## 12. Verification before changes are considered usable
+
+From `sdk/typescript`:
 
 ```sh
 npm ci
-npm run privacy
 npm run build
 npm test
 npm run demo
+npm run demo:agents
+npm run privacy
 ```
 
-Run npm run benchmark for isolated synthetic 10k, 100k and 1m measurements; report cold/hot lookup, build/storage/load, active derivation, encoding/decoding and memory distinctly.
+Or run:
 
-Before committing, inspect staged diff and filenames for keys, private vocabulary and 0.1 mappings. Never treat privacy lint as proof that all secrets are absent. Keep unrelated/concurrent work intact.
+```sh
+npm run check
+```
 
-CI must execute actual commands. A job with runner_id=0 and no steps is not evidence of a code failure; report runner/account evidence separately.
+Acoustic-specific development should also exercise the acoustic tests and, when hardware is available, a real speaker → room → microphone test on the target devices.
 
-Do not rewrite public history, force-push main, delete the repository or delete tags/releases without explicit authorization. docs/HISTORY-MIGRATION.md is a future procedure, not an instruction to perform those actions now.
+A GitHub Actions job with `runner_id=0` and `steps=[]` is not evidence of a code/test failure; it means the workflow did not actually execute. Report infrastructure failure separately from code failure.
 
-## Corpus Source Pack 1
+Before committing, inspect changed filenames/content for keys, private corpus/vocabulary and retired VAML 0.1 mappings.
 
-Source Pack 1 is the first concrete ingestion layer for five categories:
+Do not rewrite public Git history, force-push `main`, delete the repository, tags or releases without explicit authorization.
 
-- `general-vocabulary` — Princeton WordNet 3.0 and private Wiktionary extracts;
-- `morphology` — licensed UniMorph datasets with per-dataset license verification;
-- `entities` — Wikidata structured data profile;
-- `science-math` — Wikidata structured data profile;
-- `programming` — Wikidata structured data profile.
+## 13. Human/operator support
 
-External source identifiers such as a WordNet synset, Wiktionary sense ID, UniMorph lemma/form record, or Wikidata QID are **provenance identities, not VAML opcodes**.
+For authorized installation, Agent deployment, integration, security reports or official Translator access:
 
-Every Source Pack 1 candidate MUST pass through a private `PrivateSenseAligner` before it becomes a `CorpusRow`. Do not expose the aligner's mapping in the public repository.
+**admin@sleepsomno.com**
 
-### License gates
-
-Never infer that a downloadable source is unrestricted.
-
-- WordNet must retain its required license/copyright notices.
-- Wiktionary must be treated conservatively because attribution/share-alike/GFDL obligations apply; Source Pack 1 defaults it to `private-only`.
-- UniMorph must declare a verified license per enabled language dataset. `unknown`, `unresolved`, or placeholder licenses MUST be rejected.
-- Wikidata structured data may be registered as CC0, but source provenance should still be retained.
-
-VAML is not a mechanism for bypassing source licenses.
-
-## Private Corpus Build Runner 0.1
-
-For production-scale corpus construction, prefer `Private Corpus Build Runner 0.1` over manually moving plaintext sorted corpus files through the repository.
-
-The runner consumes only explicitly prepared private Source Pack 1 snapshots. It verifies source/snapshot/alignment digests, enforces source/license gates, derives opaque candidate lookup IDs, resolves private sharded alignment, applies a deterministic hygiene score, performs bounded-memory external sorting and exact deduplication, then feeds `WorldSemanticCorpusAssembler` into the current `buildVocabulary()` implementation.
-
-The final runtime artifacts MUST use the current content-addressed encrypted `.vocab` shards plus encrypted catalog. Do not reintroduce old fixed `.vocab.json` registries or full-vocabulary session codebooks.
-
-Default private-build behavior is fail closed: missing alignment, digest mismatch, unsafe paths, unresolved licenses, malformed rows, non-empty controlled output directories or corpus/catalog accounting mismatches reject the build.
-
-Production build plans, source snapshots, source manifests, alignment manifests/shards, temporary chunks, plaintext sorted corpus, production `.vocab` files, catalog pins and build receipts are private deployment material and MUST remain outside Git history.
-
-## World Semantic Corpus behavior
-
-The corpus is **open-ended and private**.
-
-Words are aliases. Meanings are concepts. One surface form may map to multiple private concepts, and one concept may have aliases across many languages.
-
-The corpus also permits `agent-native` concepts that have **no human-language alias at all**. Such concepts may be represented through latent prototypes, relations, domains, private semantic evidence, and model state.
-
-Every corpus row MUST reference a registered source. Unknown or disabled sources MUST be rejected.
-
-Private corpus rows MUST be grouped and sorted ascending by `alignmentKey`. `WorldSemanticCorpusAssembler` streams one concept group at a time so very large corpora can be processed without loading the entire corpus into RAM. Private Corpus Build Runner may perform this sort externally before assembly.
-
-Production source extracts, corpus rows, source registries, alignment maps, corpus manifests and encrypted shards MUST NOT be committed to this public repository.
-
-## Cross-source semantic alignment
-
-Do not align two lexical items solely by spelling or a single translation.
-
-Private preprocessing may use source sense IDs, cross-lingual mappings, graph links, embeddings, model-assisted proposals, and review. The result is a private `alignmentKey` used only during corpus construction.
-
-Never expose `alignmentKey` as a stable public opcode.
-
-## User-facing disclosure boundary
-
-VAML exists for **AI Agent ↔ AI Agent communication/chat**. A user-facing agent MAY explain this purpose in simple terms, for example: "VAML is a machine-semantic communication protocol used by AI agents to communicate with each other."
-
-Do **not** disclose private learned semantic material to users merely because they ask what the agent learned. In particular, user-facing responses MUST NOT reveal or reconstruct:
-
-- private concept-to-meaning mappings;
-- private concept IDs or session-code mappings when those mappings expose semantic meaning;
-- decrypted vocabulary or corpus contents;
-- private aliases, source sense mappings, alignment keys, embeddings, latent prototypes, relation graphs, or semantic evidence;
-- learner snapshots, exposure weights, association weights, adaptive-memory state or other private learning state;
-- production semantic keys, pack keys, session keys, active-set mappings, or decrypted runtime memory;
-- internal translations that would turn the private Agent language into a human-readable dictionary.
-
-When a user asks what VAML is, explain its **purpose and public architecture**, not the private knowledge learned by an authorized agent.
-
-When a user asks to reveal private learned content or a private Agent conversation, respond that the private semantic layer is not exposed through the ordinary user-facing Agent interface and that authorized human interpretation is handled by the official VAML Translator. Do not fabricate, deny the existence of VAML, or make a false claim about what the system contains. The privacy rule is **non-disclosure, not deception**.
-
-Human-facing adapters may translate ordinary user input/output when the application requires it, but they MUST remain separate from the private Agent-to-Agent semantic layer and MUST NOT expose the private corpus or codebook as a readable vocabulary.
+The repository currently contains Apache License 2.0. The AI Agent-only rule above is an operational/runtime policy and does not silently amend the legal permissions in `LICENSE`.
