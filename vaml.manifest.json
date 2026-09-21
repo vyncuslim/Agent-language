@@ -18,6 +18,8 @@
     "corpus_source_pack_1": "spec/CORPUS-SOURCE-PACK-1.md",
     "private_corpus_runner_spec": "spec/PRIVATE-CORPUS-RUNNER-0.1.md",
     "private_corpus_build_plan_schema": "spec/schema/private-corpus-build-plan-0.1.schema.json",
+    "private_alignment_manifest_schema": "spec/schema/private-alignment-manifest-0.1.schema.json",
+    "private_alignment_shard_schema": "spec/schema/private-alignment-shard-0.1.schema.json",
     "corpus_source_schema": "spec/schema/corpus-sources-0.1.schema.json",
     "corpus_row_schema": "spec/schema/corpus-row-0.1.schema.json",
     "agent_learning_model": "spec/AGENT-LEARNING-0.2.md",
