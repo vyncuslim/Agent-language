@@ -84,6 +84,31 @@ function normalizeDecision(
   return structuredClone(decision);
 }
 
+async function receivePeerMessageOrEnd(
+  conversation: VamlConversation,
+): Promise<ConversationMessage | undefined> {
+  try {
+    return await conversation.receive();
+  } catch (error) {
+    if (error instanceof Error && error.message === "Transport ended") return undefined;
+    throw error;
+  }
+}
+
+function buildDialogueResult(
+  conversation: VamlConversation,
+  localReplies: number,
+  lastMessage?: ConversationMessage,
+): AgentDialogueResult {
+  return {
+    conversationId: conversation.conversationId,
+    sessionId: conversation.sessionId,
+    localReplies,
+    history: conversation.context(),
+    lastMessage: lastMessage ? structuredClone(lastMessage) : undefined,
+  };
+}
+
 /**
  * Start a long-lived VAML endpoint backed by an AI Agent brain.
  *
@@ -107,6 +132,12 @@ export function startAgentServer(
       const context = brainContext(config, conversation, message);
       const response = normalizeDecision(await brain(context));
       await onDecision?.(context, response ? structuredClone(response) : null);
+      if (response === null) {
+        // Signal a normal peer-initiated end immediately. Without this FIN the
+        // initiator would wait until the conversation idle timeout expires.
+        conversation.channel.socket.end();
+        return null;
+      }
       return response;
     },
     conversationOptions,
@@ -143,7 +174,8 @@ export async function runAgentDialogue(
 
   try {
     await conversation.send(initialFields);
-    lastMessage = await conversation.receive();
+    lastMessage = await receivePeerMessageOrEnd(conversation);
+    if (!lastMessage) return buildDialogueResult(conversation, localReplies);
 
     while (localReplies < maxAgentTurns) {
       const context = brainContext(config, conversation, lastMessage);
@@ -153,16 +185,11 @@ export async function runAgentDialogue(
 
       await conversation.reply(lastMessage, response);
       localReplies++;
-      lastMessage = await conversation.receive();
+      lastMessage = await receivePeerMessageOrEnd(conversation);
+      if (!lastMessage) break;
     }
 
-    return {
-      conversationId: conversation.conversationId,
-      sessionId: conversation.sessionId,
-      localReplies,
-      history: conversation.context(),
-      lastMessage: lastMessage ? structuredClone(lastMessage) : undefined,
-    };
+    return buildDialogueResult(conversation, localReplies, lastMessage);
   } finally {
     conversation.close();
   }
