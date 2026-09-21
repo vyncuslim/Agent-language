@@ -58,6 +58,7 @@ export interface AcousticMicrophoneReceiverOptions extends AcousticClockRecovery
   inputSampleRate?: number;
   maxBufferedSeconds?: number;
   onFrame?: (frame: AcousticDecodedFrame) => void;
+  onDecodeError?: (error: Error) => void;
 }
 
 export class AcousticMicrophoneReceiver {
@@ -66,6 +67,7 @@ export class AcousticMicrophoneReceiver {
   private readonly inputSampleRate: number;
   private readonly maxBufferedSamples: number;
   private readonly onFrame?: (frame: AcousticDecodedFrame) => void;
+  private readonly onDecodeError?: (error: Error) => void;
   private readonly resampler: StreamingLinearResampler;
   private buffer = new Int16Array(0);
   private lock: ClockLock | undefined;
@@ -83,6 +85,7 @@ export class AcousticMicrophoneReceiver {
     }
     this.maxBufferedSamples = Math.ceil(this.profile.sampleRate * maxBufferedSeconds);
     this.onFrame = options.onFrame;
+    this.onDecodeError = options.onDecodeError;
     this.options = {
       profile: this.profile,
       maxFrameBytes: options.maxFrameBytes,
@@ -131,7 +134,21 @@ export class AcousticMicrophoneReceiver {
 
     while (true) {
       if (!this.lock && this.newSamplesSinceScan < minimumScanIncrement) break;
-      const attempt = tryDecodeAdaptive(this.buffer, this.options, this.lock);
+      let attempt: DecodeAttempt;
+      try {
+        attempt = tryDecodeAdaptive(this.buffer, this.options, this.lock);
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        if (!/^(Acoustic CRC mismatch|Acoustic frame size limit)/.test(failure.message)) throw failure;
+        this.onDecodeError?.(failure);
+        const drop = this.lock
+          ? Math.max(1, Math.ceil(this.lock.start + nominal))
+          : Math.max(1, Math.ceil(nominal));
+        this.buffer = this.buffer.slice(Math.min(this.buffer.length, drop));
+        this.lock = undefined;
+        this.newSamplesSinceScan = this.buffer.length;
+        continue;
+      }
       this.newSamplesSinceScan = 0;
 
       if (attempt.status === "frame") {
