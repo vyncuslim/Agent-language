@@ -1,6 +1,6 @@
 # VAML — Vynalth Agent Machine Language
 
-VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.2-experimental` adds the **VAML World Semantic Corpus 0.1** pipeline while remaining wire-compatible with VAML 0.2.
+VAML 0.2 is an experimental machine-native protocol for AI-agent communication. Release `0.2.3-experimental` adds **Corpus Source Pack 1** on top of the VAML World Semantic Corpus while remaining wire-compatible with VAML 0.2.
 
 VAML deliberately avoids a public `word -> opcode` dictionary. Production agents communicate through private concept identities, session-local opaque codes, typed binary fields, and authenticated encryption.
 
@@ -9,13 +9,13 @@ VAML deliberately avoids a public `word -> opcode` dictionary. Production agents
 ```text
 private dictionaries / entities / terminology / model semantics
                          ↓
-             private source registry
+               source-pack adapters
                          ↓
-           source-specific normalization
+              source candidates
                          ↓
-         cross-source semantic alignment
+             private sense aligner
                          ↓
-       sorted private CorpusRow stream
+            private alignmentKey
                          ↓
        WorldSemanticCorpusAssembler
                          ↓
@@ -38,24 +38,29 @@ private dictionaries / entities / terminology / model semantics
 
 The same private concept receives a fresh wire code in a fresh session.
 
+## Corpus Source Pack 1
+
+The first concrete source pack covers five categories:
+
+- general vocabulary — Princeton WordNet 3.0 + private Wiktionary extracts;
+- morphology — UniMorph datasets with explicit per-dataset license verification;
+- entities — Wikidata structured data profile;
+- science and mathematics — Wikidata structured data profile;
+- programming/software concepts — Wikidata structured data profile.
+
+Public code contains adapters and synthetic tests only. Third-party dumps, private source registries, source-to-concept alignment maps and compiled production shards stay outside Git history.
+
+External IDs such as WordNet synsets or Wikidata QIDs are provenance identifiers. They are **not VAML opcodes**. Every source candidate must go through a private semantic aligner before becoming a corpus concept.
+
+See `spec/CORPUS-SOURCE-PACK-1.md`.
+
 ## World Semantic Corpus
 
 The corpus layer is designed to combine many private or properly licensed sources into one concept space without publishing a readable dictionary in this repository.
 
-Supported source classes include:
-
-- multilingual dictionaries and lexical knowledge bases;
-- morphology and inflection data;
-- named entities and encyclopedic concepts;
-- science, mathematics, medicine, engineering and other terminology;
-- programming languages, APIs and technical ontologies;
-- organization-private vocabulary;
-- model-generated semantic structures;
-- **agent-native concepts with no required human-language word**.
+Supported source classes include multilingual dictionaries and lexical knowledge bases, morphology and inflection data, named entities, science/mathematics/engineering terminology, programming concepts, organization-private vocabulary, model-generated semantic structures, and **agent-native concepts with no required human-language word**.
 
 Words remain edge aliases. Meanings are private concepts.
-
-The public repository contains the compiler, schema, validation, privacy guard and synthetic tests. Real corpus rows, source registries, alignment maps, decrypted packs and production keys stay outside Git history.
 
 See `spec/WORLD-SEMANTIC-CORPUS-0.1.md`.
 
@@ -73,6 +78,12 @@ would be directly readable and statistically learnable by humans. It would also 
 
 VAML instead uses private cross-source sense alignment, encrypted concept packs, optional embeddings and relations, HMAC-derived private identities, and fresh session-local wire codes.
 
+## Source license discipline
+
+Source Pack 1 intentionally refuses to treat every downloadable dataset as unrestricted.
+
+WordNet usage must preserve its required license/copyright notices. Wiktionary is kept `private-only` by default until attribution/share-alike/GFDL export compliance is implemented. UniMorph datasets must declare an explicit verified license per enabled language dataset. Wikidata structured data is registered as CC0.
+
 ## Agent-native concepts
 
 A corpus row can be `kind: "agent-native"`. Such a concept may contain a latent prototype, relations, domains and private semantic evidence without containing any lexical alias.
@@ -86,8 +97,6 @@ It does **not** create a mathematical guarantee that a human controlling the aut
 Corpus input is grouped and sorted by a private `alignmentKey`. The assembler streams one concept group at a time instead of loading the entire corpus into memory.
 
 The default output shard contains 50,000 concepts. There is no protocol-level shard-count limit.
-
-Capacity examples:
 
 ```text
 20 shards       ≈ 1,000,000 concepts
@@ -106,14 +115,16 @@ spec/VAML-0.2.md                                   Wire protocol
 spec/VOCABULARY-0.2.md                             Private vocabulary architecture
 spec/WORLD-LEXICON-0.2.md                          Large multilingual lexicon layer
 spec/WORLD-SEMANTIC-CORPUS-0.1.md                  Multi-source private corpus architecture
+spec/CORPUS-SOURCE-PACK-1.md                       First real source-ingestion profiles
 spec/AGENT-LEARNING-0.2.md                         Agent learning model
 sdk/typescript/src/corpus.ts                       Streaming corpus assembler + provenance
-sdk/typescript/src/world-lexicon.ts                Streaming lexical assembler
+sdk/typescript/src/source-adapter.ts               Source adapter boundary
+sdk/typescript/src/source-pack-1.ts                WordNet/Wiktionary/UniMorph/Wikidata adapters
 sdk/typescript/src/learning.ts                     Opaque learner
 sdk/typescript/src/semantic-index.ts               Private semantic index
 sdk/typescript/tools/build-world-semantic-corpus.ts Corpus -> encrypted shard builder
-sdk/typescript/tools/build-world-lexicon.ts         World lexicon shard builder
 sdk/typescript/tools/privacy-lint.ts                Public-repository leakage guard
+sdk/typescript/test/source-pack-1.test.ts           Source Pack 1 synthetic tests
 sdk/typescript/test/corpus.test.ts                  Synthetic corpus tests
 sdk/typescript/examples/agent-pair-demo.ts          Agent A <-> Agent B demo
 ```
@@ -151,7 +162,7 @@ Run:
 npm run privacy
 ```
 
-The guard rejects common private corpus/lexicon paths, corpus JSONL/manifests, vocabulary packs, keys and obvious fixed public word/opcode registries.
+The guard rejects common private corpus/lexicon/source-pack paths, alignment maps, vocabulary packs, keys and obvious fixed public word/opcode registries.
 
 ## Security boundary
 
@@ -161,4 +172,4 @@ The target is **opaque-by-default agent communication and private machine semant
 
 ## Status
 
-**VAML 0.2.2 experimental runtime · VAML 0.2 wire-compatible · World Semantic Corpus 0.1.**
+**VAML 0.2.3 experimental runtime · VAML 0.2 wire-compatible · World Semantic Corpus 0.1 · Corpus Source Pack 1.**

@@ -11,11 +11,15 @@ const forbiddenFilePatterns: RegExp[] = [
   /(^|\/)private-corpus(\/|$)/i,
   /(^|\/)corpus-private(\/|$)/i,
   /(^|\/)alignment-map(\/|$)/i,
+  /(^|\/)source-pack-private(\/|$)/i,
   /\.private\.jsonl$/i,
   /\.world(?:\.sorted)?\.jsonl$/i,
   /\.corpus(?:\.sorted)?\.jsonl$/i,
   /\.corpus\.manifest\.json$/i,
   /\.corpus\.sources\.json$/i,
+  /\.sourcepack\.jsonl$/i,
+  /\.extract\.private\.jsonl$/i,
+  /\.alignment\.private\.jsonl$/i,
   /\.sources\.private\.json$/i,
   /\.alignment\.private\.json$/i,
   /\.vocab\.json$/i,
@@ -41,6 +45,10 @@ const forbiddenContentPatterns: Array<{ name: string; pattern: RegExp }> = [
   {
     name: "public fixed word-to-opcode registry",
     pattern: /["'](?:word|lexeme|term)["']\s*:\s*["'][^"']+["'][\s\S]{0,160}["'](?:opcode|publicCode|fixedCode)["']\s*:/i,
+  },
+  {
+    name: "committed private source-pack alignment table",
+    pattern: /["'](?:sourceSenseId|synset|wikidataId)["']\s*:\s*["'][^"']+["'][\s\S]{0,200}["']alignmentKey["']\s*:\s*["'][^"']+["']/i,
   },
 ];
 
@@ -89,7 +97,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    "VAML privacy lint passed: no committed private lexicon/corpus artifacts, keys, or fixed public word/opcode tables detected.",
+    "VAML privacy lint passed: no committed private lexicon/corpus/source-pack artifacts, keys, alignment maps, or fixed public word/opcode tables detected.",
   );
 }
 

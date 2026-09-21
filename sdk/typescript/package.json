@@ -1,6 +1,6 @@
 {
   "name": "@vaml/runtime",
-  "version": "0.2.2-experimental",
+  "version": "0.2.3-experimental",
   "private": true,
   "description": "Reference TypeScript runtime for VAML 0.2 opaque agent communication",
   "type": "module",

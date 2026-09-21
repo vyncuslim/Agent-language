@@ -5,6 +5,7 @@ world-lexicon/
 private-corpus/
 corpus-private/
 alignment-map/
+source-pack-private/
 *.private.jsonl
 *.world.jsonl
 *.world.sorted.jsonl
@@ -12,6 +13,9 @@ alignment-map/
 *.corpus.sorted.jsonl
 *.corpus.manifest.json
 *.corpus.sources.json
+*.sourcepack.jsonl
+*.extract.private.jsonl
+*.alignment.private.jsonl
 *.sources.private.json
 *.alignment.private.json
 *.vocab.json
