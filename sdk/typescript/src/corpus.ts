@@ -171,9 +171,10 @@ function mergeRow(
   }
 
   for (const [name, values] of Object.entries(row.relations ?? {})) {
-    const set = target.relations.get(norm(name, "relation")) ?? new Set<string>();
+    const normalizedName = norm(name, "relation");
+    const set = target.relations.get(normalizedName) ?? new Set<string>();
     for (const value of values) set.add(norm(value, "relation target"));
-    target.relations.set(norm(name, "relation"), set);
+    target.relations.set(normalizedName, set);
   }
 
   if (row.embedding) {
@@ -196,19 +197,29 @@ function mergeRow(
   target.metadata = { ...target.metadata, ...(row.metadata ?? {}) };
 }
 
-function mergeVectorSpace(vectors: Array<{ space: string; values: number[] }>): number[] | undefined {
-  if (vectors.length === 0) return undefined;
-  const spaces = new Set(vectors.map((vector) => vector.space));
-  if (spaces.size !== 1) return undefined;
-  const dimension = vectors[0].values.length;
-  if (dimension === 0 || vectors.some((vector) => vector.values.length !== dimension)) {
-    throw new Error("Inconsistent embedding dimensions inside one corpus concept");
-  }
-  const centroid = Array<number>(dimension).fill(0);
+function vectorCentroidsBySpace(
+  vectors: Array<{ space: string; values: number[] }>,
+): Record<string, number[]> {
+  const grouped = new Map<string, number[][]>();
   for (const vector of vectors) {
-    for (let i = 0; i < dimension; i += 1) centroid[i] += vector.values[i];
+    const bucket = grouped.get(vector.space) ?? [];
+    bucket.push(vector.values);
+    grouped.set(vector.space, bucket);
   }
-  return centroid.map((value) => value / vectors.length);
+
+  const output: Record<string, number[]> = {};
+  for (const [space, values] of [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const dimension = values[0]?.length ?? 0;
+    if (dimension === 0 || values.some((vector) => vector.length !== dimension)) {
+      throw new Error(`Inconsistent embedding dimensions in space ${space}`);
+    }
+    const centroid = Array<number>(dimension).fill(0);
+    for (const vector of values) {
+      for (let i = 0; i < dimension; i += 1) centroid[i] += vector[i];
+    }
+    output[space] = centroid.map((value) => value / values.length);
+  }
+  return output;
 }
 
 function finalizeConcept(value: MutableCorpusConcept): ConceptSourceRecord {
@@ -222,7 +233,10 @@ function finalizeConcept(value: MutableCorpusConcept): ConceptSourceRecord {
     relations[name] = [...values].sort();
   }
 
-  const vectorSpaces = [...new Set(value.vectors.map((vector) => vector.space))].sort();
+  const vectorCentroids = vectorCentroidsBySpace(value.vectors);
+  const vectorSpaces = Object.keys(vectorCentroids).sort();
+  const primaryEmbedding = vectorSpaces.length === 1 ? vectorCentroids[vectorSpaces[0]] : undefined;
+
   return {
     // Stable private identity material. Rich evidence stays in encrypted metadata so source enrichment
     // does not need to become a public word/opcode table.
@@ -234,13 +248,14 @@ function finalizeConcept(value: MutableCorpusConcept): ConceptSourceRecord {
     aliases: Object.keys(aliases).length ? aliases : undefined,
     relations: Object.keys(relations).length ? relations : undefined,
     domains: [...value.domains].sort(),
-    embedding: mergeVectorSpace(value.vectors),
+    embedding: primaryEmbedding,
     metadata: {
       ...value.metadata,
       corpus: {
         provenance: value.provenance,
         semanticEvidence: value.semanticEvidence,
         vectorSpaces,
+        vectorCentroids,
       },
     },
   };
