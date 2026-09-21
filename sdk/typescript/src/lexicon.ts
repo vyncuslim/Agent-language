@@ -63,6 +63,28 @@ export function createPrivatePayload(
   };
 }
 
+export function mergeLexicons(payloads: PrivateLexiconPayload[]): PrivateLexiconPayload {
+  const concepts = new Map<string, CompiledConceptRecord>();
+  for (const payload of payloads) {
+    if (payload.format !== "vaml-private-lexicon" || payload.version !== "0.2") {
+      throw new Error("Cannot merge incompatible VAML lexicon payload");
+    }
+    for (const concept of payload.concepts) {
+      const existing = concepts.get(concept.conceptId);
+      if (existing && canonicalJson(existing) !== canonicalJson(concept)) {
+        throw new Error(`Conflicting concept definition: ${concept.conceptId}`);
+      }
+      concepts.set(concept.conceptId, concept);
+    }
+  }
+  return {
+    format: "vaml-private-lexicon",
+    version: "0.2",
+    createdAt: new Date().toISOString(),
+    concepts: [...concepts.values()].sort((a, b) => a.conceptId.localeCompare(b.conceptId)),
+  };
+}
+
 export function encryptLexicon(
   payload: PrivateLexiconPayload,
   packSecret: Uint8Array,
