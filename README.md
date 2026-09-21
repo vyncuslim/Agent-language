@@ -97,4 +97,20 @@ The World Semantic Corpus assembler, Source Pack 1 adapters, private sense align
 
 Use `npm run corpus-pack -- /private/sources.json /private/corpus.sorted.jsonl /private/packs 1` to build the same encrypted catalog/shard format. The final argument is catalog revision. Source registries, alignment maps, corpus rows and private learned content remain private. See [corpus architecture](spec/WORLD-SEMANTIC-CORPUS-0.1.md) and [Source Pack 1](spec/CORPUS-SOURCE-PACK-1.md). These adapters do not bundle or download a real world corpus.
 
+## Private Corpus Build Runner 0.1
+
+For large real corpus builds, `Private Corpus Build Runner 0.1` removes the requirement that source adapters pre-sort the entire corpus in memory. It consumes digest-pinned private Source Pack 1 snapshots, applies a deterministic quality gate, resolves an opaque lookup ID through private digest-pinned alignment shards, performs bounded-memory external sorting and exact deduplication, then streams the result through the existing `WorldSemanticCorpusAssembler` and current `buildVocabulary()` implementation.
+
+Its final runtime artifacts are the same content-addressed encrypted `.vocab` shards and encrypted catalog used by `ShardedSemanticIndex`; it does not reintroduce the retired fixed vocabulary format.
+
+```sh
+VAML_SEMANTIC_KEY=<private-32-byte-base64url-key> \
+VAML_PACK_KEY=<private-32-byte-base64url-key> \
+npm run private-corpus-run -- /secure/vaml/build-plan.json
+```
+
+The build plan, source snapshots, source registry, alignment manifest/shards, temporary sort chunks, plaintext sorted corpus, encrypted production vocabulary and build receipt must all remain outside the public repository. The runner refuses configured sensitive paths inside the repository and fails closed on missing alignment by default.
+
+A successful private receipt records input/output digests, policy, counts, catalog ID/revision and encrypted artifact hashes without storing the semantic or pack keys. See [Private Corpus Build Runner 0.1](spec/PRIVATE-CORPUS-RUNNER-0.1.md).
+
 User-facing agents may explain VAML's public purpose and architecture. They must not disclose or reconstruct private concept-to-meaning mappings, vocabulary, source alignments or learned state through ordinary user-facing responses. This is a non-disclosure boundary, not deception about the existence of private knowledge.
