@@ -238,11 +238,13 @@ function finalizeConcept(value: MutableCorpusConcept): ConceptSourceRecord {
   const primaryEmbedding = vectorSpaces.length === 1 ? vectorCentroids[vectorSpaces[0]] : undefined;
 
   return {
-    // Stable private identity material. Rich evidence stays in encrypted metadata so source enrichment
-    // does not need to become a public word/opcode table.
+    // Corpus identity is private and stable across later evidence/domain enrichment.
+    identityMaterial: {
+      schema: "vaml-world-semantic-corpus-identity/0.1",
+      privateAlignmentRef: value.alignmentKey,
+    },
     semantic: {
       schema: "vaml-world-semantic-corpus/0.1",
-      privateAlignmentRef: value.alignmentKey,
       agentNative: value.agentNative,
     },
     aliases: Object.keys(aliases).length ? aliases : undefined,
