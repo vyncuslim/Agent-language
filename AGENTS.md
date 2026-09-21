@@ -4,7 +4,7 @@
 
 VAML is an opaque machine semantic Agent-to-Agent runtime built around a private World Concept Space. Never convert it into a public word-to-opcode language.
 
-Read vaml.manifest.json, spec/VAML-0.2.md, spec/VOCABULARY-0.2.md, spec/WORLD-LEXICON-0.2.md, spec/WORLD-SEMANTIC-CORPUS-0.1.md, spec/CORPUS-SOURCE-PACK-1.md, spec/AGENT-LEARNING-0.2.md, then the relevant TypeScript implementation. Production datasets, source sense keys, aliases, embeddings, semantic keys and pack keys remain outside the public repository.
+Read vaml.manifest.json, spec/VAML-0.2.md, spec/VOCABULARY-0.2.md, spec/WORLD-LEXICON-0.2.md, spec/WORLD-SEMANTIC-CORPUS-0.1.md, spec/CORPUS-SOURCE-PACK-1.md, spec/PRIVATE-CORPUS-RUNNER-0.1.md, spec/AGENT-LEARNING-0.2.md, then the relevant TypeScript implementation. Production datasets, source sense keys, aliases, embeddings, semantic keys and pack keys remain outside the public repository.
 
 ## Required boundaries
 
@@ -100,6 +100,18 @@ Never infer that a downloadable source is unrestricted.
 
 VAML is not a mechanism for bypassing source licenses.
 
+## Private Corpus Build Runner 0.1
+
+For production-scale corpus construction, prefer `Private Corpus Build Runner 0.1` over manually moving plaintext sorted corpus files through the repository.
+
+The runner consumes only explicitly prepared private Source Pack 1 snapshots. It verifies source/snapshot/alignment digests, enforces source/license gates, derives opaque candidate lookup IDs, resolves private sharded alignment, applies a deterministic hygiene score, performs bounded-memory external sorting and exact deduplication, then feeds `WorldSemanticCorpusAssembler` into the current `buildVocabulary()` implementation.
+
+The final runtime artifacts MUST use the current content-addressed encrypted `.vocab` shards plus encrypted catalog. Do not reintroduce old fixed `.vocab.json` registries or full-vocabulary session codebooks.
+
+Default private-build behavior is fail closed: missing alignment, digest mismatch, unsafe paths, unresolved licenses, malformed rows, non-empty controlled output directories or corpus/catalog accounting mismatches reject the build.
+
+Production build plans, source snapshots, source manifests, alignment manifests/shards, temporary chunks, plaintext sorted corpus, production `.vocab` files, catalog pins and build receipts are private deployment material and MUST remain outside Git history.
+
 ## World Semantic Corpus behavior
 
 The corpus is **open-ended and private**.
@@ -110,7 +122,7 @@ The corpus also permits `agent-native` concepts that have **no human-language al
 
 Every corpus row MUST reference a registered source. Unknown or disabled sources MUST be rejected.
 
-Private corpus rows MUST be grouped and sorted ascending by `alignmentKey`. `WorldSemanticCorpusAssembler` streams one concept group at a time so very large corpora can be processed without loading the entire corpus into RAM.
+Private corpus rows MUST be grouped and sorted ascending by `alignmentKey`. `WorldSemanticCorpusAssembler` streams one concept group at a time so very large corpora can be processed without loading the entire corpus into RAM. Private Corpus Build Runner may perform this sort externally before assembly.
 
 Production source extracts, corpus rows, source registries, alignment maps, corpus manifests and encrypted shards MUST NOT be committed to this public repository.
 
