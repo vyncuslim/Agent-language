@@ -1,0 +1,26 @@
+# VAML private semantic material — NEVER commit production copies
+private-lexicon/
+private-vocab/
+*.private.jsonl
+*.vocab.json
+*.vocab.key
+*.semantic.key
+*.session.key
+*.key.json
+.env
+.env.*
+!.env.example
+
+# TypeScript / Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
