@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "demo": "tsx examples/agent-pair-demo.ts",
-    "test": "node --import tsx --test test/*.test.ts"
+    "pack": "tsx tools/build-private-lexicon.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run build && npm test"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
