@@ -5,7 +5,10 @@ world-lexicon/
 private-corpus/
 corpus-private/
 alignment-map/
+alignment-shards/
 source-pack-private/
+source-snapshots/
+private-build/
 *.private.jsonl
 *.world.jsonl
 *.world.sorted.jsonl
@@ -14,10 +17,14 @@ source-pack-private/
 *.corpus.manifest.json
 *.corpus.sources.json
 *.sourcepack.jsonl
+*.snapshot.private.jsonl
 *.extract.private.jsonl
 *.alignment.private.jsonl
-*.sources.private.json
 *.alignment.private.json
+*.alignment.manifest.json
+*.sources.private.json
+*.build-plan.json
+*.build.receipt.json
 *.vocab.json
 *.vocab.key
 *.semantic.key
