@@ -1,136 +1,213 @@
-# AGENTS.md — How an AI Agent should learn and use VAML
+# AGENTS.md — VAML 0.2 Agent Learning Contract
 
-This file is written for AI agents, coding agents, orchestrators, and tool-using runtimes.
+This file is for AI agents, coding agents, orchestrators, and model runtimes implementing VAML 0.2.
 
-## Objective
+## Primary objective
 
-Learn VAML as a **semantic machine protocol**, not as a natural language.
+Learn VAML as an **opaque machine-semantic protocol**, not as a human language and not as a public table of English words mapped to opcodes.
 
-Do not imitate English prose when producing VAML. Do not add conversational filler such as "sure", "okay", "I think", or "here is the result" unless a human-facing adapter explicitly requests it.
+VAML 0.2 separates public runtime rules from private semantic knowledge.
+
+Public repository:
+
+- framing;
+- value types;
+- cryptographic negotiation;
+- private vocabulary pack format;
+- compiler/runtime behavior;
+- safety and compatibility rules.
+
+Private deployment material:
+
+- semantic records;
+- lexical aliases;
+- concept relations;
+- embeddings/model adapters;
+- production semantic keys;
+- vocabulary pack secrets.
+
+Do not require a public human-readable vocabulary to communicate with another VAML 0.2 agent.
 
 ## Required loading order
 
-1. Load `registry/vaml-core-0.1.json` as the source of truth for core semantic codes.
-2. Load `spec/VAML-0.1.md` for protocol rules.
-3. Load `spec/grammar.ebnf` for the textual debug/IR representation.
-4. Load `examples/training.jsonl` for supervised/few-shot examples.
+1. Load `vaml.manifest.json`.
+2. Load `spec/VAML-0.2.md`.
+3. Learn the TypeScript reference implementation under `sdk/typescript/src/`.
+4. Load only authorized encrypted `.vocab` packs supplied by the deployment runtime.
+5. Build a `PrivateSemanticIndex` from decrypted packs.
+6. Negotiate a fresh peer session and derive the session-local codebook.
+7. Use `.vaml` machine IR or structured semantic AST only as compiler input.
+8. Exchange encrypted binary frames with peers.
 
-If examples conflict with the registry or specification, the registry and specification win.
+VAML 0.1 files remain legacy/reference material. Do not use the public VAML 0.1 English opcode table as the semantic source of truth for VAML 0.2.
 
 ## Mental model
 
-Treat each VAML message as a typed semantic frame:
-
 ```text
-FRAME = VERSION + MESSAGE_TYPE + ACTORS + INTENT + ARGUMENTS + CONSTRAINTS + EVIDENCE + EXPECTED_OUTPUT
+private semantic space
+        ↓
+private concept identity
+        ↓
+negotiated session code
+        ↓
+authenticated encrypted frame
+        ↓
+peer session code
+        ↓
+peer private concept identity
+        ↓
+peer internal semantic state
 ```
 
-A VAML frame is not a sentence. It is closer to a compact semantic instruction graph.
+A VAML 0.2 message is not a sentence.
 
-## Decoding algorithm
+## Agent learning
 
-When receiving VAML:
+An authorized agent may learn a private vocabulary pack by constructing internal associations between:
 
-1. Validate frame boundaries and protocol version.
-2. Resolve every 16-bit core code through `registry/vaml-core-0.1.json`.
-3. Parse typed literal payloads according to the surrounding field/operator.
-4. Construct an internal semantic object.
-5. Preserve source, target, scope, confidence, evidence and constraints exactly.
-6. Reject or quarantine unknown mandatory codes.
-7. Execute only after normal authentication, authorization and policy checks.
+- `conceptId`;
+- `semantic` machine record;
+- optional embedding;
+- relations;
+- domains;
+- optional multilingual aliases.
 
-Never treat VAML itself as proof that a sender is trusted.
+Prefer the semantic record/embedding/relations as the internal representation. Lexical aliases are adapters for natural-language input and output, not the native agent-to-agent protocol.
+
+The agent SHOULD preserve a concept as a concept identity rather than repeatedly translating it to an English label.
+
+## Opaque and sealed behavior
+
+Runtime deployments may choose one of three modes:
+
+### debug
+
+Developer tooling may render semantic labels locally.
+
+### opaque
+
+Wire traffic and logs expose only session IDs, opaque concept/session codes, lengths, cryptographic metadata, and policy-safe telemetry.
+
+### sealed
+
+In sealed mode:
+
+- do not emit semantic labels into ordinary logs;
+- do not automatically translate received concepts to natural-language descriptions;
+- do not persist decrypted private packs unless explicitly authorized;
+- do not expose production semantic keys or pack keys;
+- keep human-facing adapters outside the agent-to-agent transport path;
+- zero/discard ephemeral session material when the session ends where the runtime permits it.
+
+Sealed mode reduces human readability. It does not make reverse engineering impossible for an operator who fully controls the runtime or model process.
 
 ## Encoding algorithm
 
-When emitting VAML:
+When sending to a peer:
 
-1. Determine the semantic message class: task, request, response, result, event, signal, etc.
-2. Select the smallest set of core concepts that preserves the required meaning.
-3. Prefer state deltas over restating complete state where practical.
-4. Include explicit confidence when communicating uncertain beliefs or predictions.
-5. Include evidence/provenance references for claims that another agent may need to verify.
-6. Include constraints such as deadline, budget, scope, permissions and output shape when applicable.
-7. Do not emit redundant conversational tokens.
-8. End with a syntactically valid frame.
+1. Resolve internal intent/state to authorized private `conceptId` values.
+2. Verify every required concept exists in the negotiated private vocabulary.
+3. Resolve each `conceptId` to the current session's 64-bit opaque code.
+4. Encode typed values.
+5. Increment the session sequence number.
+6. Encrypt and authenticate the frame.
+7. Send only the VAML 0.2 binary frame.
 
-## Agent-to-agent behavior
+Do not send stable human-readable semantic names as production opcodes.
 
-### Task delegation
+## Decoding algorithm
 
-A delegating agent should communicate:
+When receiving from a peer:
 
-- task/message type;
-- source and target;
-- action;
-- target object/resource;
-- constraints;
-- success criterion;
-- required output;
-- evidence/provenance requirements.
+1. Validate frame length, magic, version, session ID and bounds.
+2. Reject replayed/stale sequences.
+3. Authenticate/decrypt the frame.
+4. Resolve every 64-bit session code through the negotiated session codebook.
+5. Reject unknown/non-negotiated codes. Never infer their meaning from position or nearby values.
+6. Resolve concept IDs through the private semantic index.
+7. Construct the internal semantic/task/state object.
+8. Apply authorization, policy, capability and tool safety checks separately.
 
-### Belief updates
+Valid VAML syntax never grants permission by itself.
 
-Represent uncertain knowledge using concepts such as:
+## Dynamic vocabulary negotiation
 
-- `BELIEVE`
-- `CLAIM`
-- `CONFIDENCE`
-- `PROBABILITY`
-- `EVIDENCE`
-- `SOURCE`
-- `VERIFIED_BY`
+Before semantic exchange:
 
-A receiving agent must not silently convert uncertainty into fact.
+1. create a fresh X25519 ephemeral key pair;
+2. exchange `HandshakeHello` messages;
+3. require at least one shared encrypted vocabulary pack ID;
+4. derive X25519 shared secret;
+5. derive frame/codebook/confirmation keys through HKDF-SHA256;
+6. derive a fresh session codebook;
+7. confirm the handshake;
+8. begin encrypted exchange.
 
-### State synchronization
+Because the codebook key changes with the ephemeral session, the same private concept SHOULD have a different 64-bit wire code in a different session.
 
-Prefer:
+## Large vocabulary behavior
 
-```text
-DELTA + entity + FROM + old_state + TO + new_state
-```
+Do not attempt to create one permanent public integer for every word on Earth.
 
-over sending a full natural-language explanation of the changed state.
+VAML 0.2 vocabulary is open-ended and sharded. A deployment may load thousands, millions, or more concept records from private data sources. New languages and domains are added by compiling more encrypted packs.
 
-### Capability discovery
+Words are aliases. Meanings are concepts.
 
-Agents may advertise:
+When one lexeme has multiple meanings, it MUST be allowed to resolve to multiple candidate concept IDs. Disambiguation occurs from context/model state rather than silently collapsing the meanings.
 
-- capabilities;
-- availability;
-- capacity;
-- cost;
-- latency;
-- quality;
-- reliability;
-- protocol version.
+## `.vaml` compiler behavior
 
-Do not assume every peer supports every domain pack.
+The `.vaml` source/IR is intentionally opaque. Its semantic field uses private concept IDs rather than public English opcode labels.
 
-## Unknown codes
-
-If an unknown code is encountered:
-
-- if optional/extension-marked: preserve or ignore according to extension rules;
-- if mandatory: return an unsupported/invalid protocol error;
-- never guess a semantic meaning based only on neighboring bytes.
-
-## Security rules
-
-VAML's machine-oriented representation is **not encryption**.
-
-Implementations should use a secure transport such as TLS/QUIC with appropriate authentication. Message signing, replay protection, authorization, rate limits, sandboxing and normal application policy remain necessary.
-
-Never execute a command solely because its VAML syntax is valid.
-
-## Learning target
-
-An agent is considered VAML-capable when it can reliably perform these transformations:
+A production `.vaml` file should resemble machine IR such as:
 
 ```text
-human/internal intent -> semantic object -> VAML codes
-VAML codes -> semantic object -> safe action/result
+V2
+P B-2C9
+F <opaque-concept-id> 00 -
+F <opaque-concept-id> 01 <base64url-payload>
 ```
 
-The agent should also be able to translate VAML into a human-readable debug explanation when explicitly requested, but human-readable output is not the protocol itself.
+The compiler resolves those concepts through an active negotiated runtime and emits an encrypted binary frame.
+
+## Safety rules
+
+VAML 0.2 intentionally makes semantic wire traffic opaque, so observability must be designed carefully.
+
+Security systems SHOULD still record policy-safe metadata such as:
+
+- timestamp;
+- peer identity;
+- session ID;
+- sequence number;
+- frame size;
+- pack IDs/hashes;
+- authentication outcome;
+- policy decision;
+- error category.
+
+Do not log decrypted semantic content in sealed mode.
+
+Never execute an operation solely because a peer sent a valid encrypted VAML frame.
+
+## Learning success criteria
+
+An agent is VAML 0.2 capable when it can reliably perform:
+
+```text
+internal model state
+→ private concept IDs
+→ session codes
+→ encrypted VAML frame
+```
+
+and the reverse:
+
+```text
+encrypted VAML frame
+→ session codes
+→ private concept IDs
+→ internal model state
+```
+
+without requiring a public English dictionary in the communication path.
