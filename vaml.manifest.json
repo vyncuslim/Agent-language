@@ -1,52 +1,65 @@
 {
   "name": "VAML",
   "full_name": "Vynalth Agent Machine Language",
-  "protocol_version": "0.1",
-  "release": "0.1.0-experimental",
-  "purpose": "Machine-native semantic communication between AI agents.",
+  "protocol_version": "0.2",
+  "release": "0.2.0-experimental",
+  "purpose": "Opaque machine-native semantic communication between AI agents.",
   "human_language": false,
-  "wire_model": "binary-semantic-tlv",
+  "public_semantic_dictionary": false,
+  "wire_model": "x25519-hkdf-session-codebook+aead-binary-tlv",
+  "semantic_model": "private-encrypted-concept-packs",
   "entrypoints": {
     "agent_instructions": "AGENTS.md",
-    "core_registry": "registry/vaml-core-0.1.json",
-    "specification": "spec/VAML-0.1.md",
-    "debug_grammar": "spec/grammar.ebnf",
-    "training_examples": "examples/training.jsonl",
-    "python_reference_codec": "sdk/python/vaml.py"
+    "specification": "spec/VAML-0.2.md",
+    "typescript_runtime": "sdk/typescript/src/index.ts",
+    "vaml_compiler": "sdk/typescript/src/compiler.ts",
+    "vocabulary_builder": "sdk/typescript/tools/build-private-lexicon.ts",
+    "agent_pair_demo": "sdk/typescript/examples/agent-pair-demo.ts",
+    "legacy_0_1_registry": "registry/vaml-core-0.1.json",
+    "legacy_0_1_spec": "spec/VAML-0.1.md"
   },
   "learning_order": [
     "AGENTS.md",
-    "registry/vaml-core-0.1.json",
-    "spec/VAML-0.1.md",
-    "examples/training.jsonl",
-    "spec/grammar.ebnf"
+    "spec/VAML-0.2.md",
+    "sdk/typescript/src/types.ts",
+    "sdk/typescript/src/lexicon.ts",
+    "sdk/typescript/src/semantic-index.ts",
+    "sdk/typescript/src/negotiation.ts",
+    "sdk/typescript/src/runtime.ts",
+    "sdk/typescript/src/compiler.ts",
+    "sdk/typescript/examples/agent-pair-demo.ts"
   ],
   "agent_learning_objectives": [
-    "resolve semantic code to namespace-scoped concept",
-    "encode internal semantic intent as VAML fields",
-    "decode VAML fields into an internal semantic object",
-    "preserve uncertainty, evidence, provenance and constraints",
-    "communicate state deltas without conversational filler",
-    "reject unknown mandatory semantics instead of guessing",
-    "treat valid syntax as data rather than authorization"
+    "load authorized encrypted semantic packs without requiring public labels",
+    "map internal semantic concepts to private concept identities",
+    "derive a fresh session-local codebook with a peer",
+    "compile opaque .vaml machine IR into authenticated encrypted frames",
+    "decode negotiated session codes back into private internal concepts",
+    "preserve typed values, relations, embeddings and machine semantic records",
+    "reject unknown or non-negotiated concepts instead of guessing",
+    "enforce replay protection and treat protocol validity as separate from authorization"
   ],
   "core_principles": [
+    "no-public-word-to-opcode-table",
+    "concepts-not-words",
+    "private-semantic-packs",
+    "session-randomized-codebook",
     "zero-chatter",
-    "semantic-primitives",
     "typed-values",
-    "state-delta",
-    "belief-and-evidence",
-    "capability-discovery",
-    "contract-delegation",
-    "versioned-registry",
-    "model-neutral",
-    "security-not-obscurity"
+    "dynamic-vocabulary-negotiation",
+    "authenticated-encryption",
+    "replay-protection",
+    "multilingual-import",
+    "sharded-open-ended-vocabulary",
+    "model-neutral"
   ],
+  "privacy_modes": ["debug", "opaque", "sealed"],
   "compatibility": {
     "major": 0,
-    "minor": 1,
-    "unknown_mandatory_code": "reject",
-    "unknown_optional_extension": "preserve-or-ignore-per-extension-policy",
-    "semantic_reassignment": "forbidden"
+    "minor": 2,
+    "v0_1": "legacy-only-explicit-bridge",
+    "missing_private_pack": "reject",
+    "unknown_session_code": "reject",
+    "semantic_guessing": "forbidden"
   }
 }
