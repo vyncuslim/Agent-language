@@ -1,73 +1,148 @@
 {
-  "recordedAt": "2026-09-21T07:50:45.095Z",
+  "recordedAt": "2026-09-21T09:06:38.319Z",
   "node": "v24.11.1",
   "platform": "win32",
   "cpu": "AMD Ryzen AI 7 350 w/ Radeon 860M              ",
   "totalMemoryGiB": 15.119007110595703,
-  "method": "Synthetic numeric concept records; isolated process per size; 16 active concepts from one shard; mean latencies; 2000 sequential encode/decode operations; local disk includes encrypted staging",
+  "method": "Synthetic numeric concept records; isolated process per size; 16 active concepts from one shard; latency samples report mean and linearly interpolated p50/p95/p99; 64 logical cold shard lookups, 10,000 hot lookups, 256 per-side active derivations, and 2,000 sequential encode/decode operations; local disk includes encrypted staging",
   "results": [
     {
       "concepts": 10000,
       "uniqueConcepts": 10000,
-      "buildMs": 1760.0031999999999,
-      "packBytes": 2624963,
-      "catalogLoadMs": 3.5254999999999654,
-      "allShardsDecryptLoadMs": 272.0122000000001,
-      "coldLookupMs": 1.6936000000000604,
-      "hotLookupUs": 4.096350000000006,
-      "handshakeMs": 5.642599999999902,
+      "buildMs": 1806.6672,
+      "packBytes": 2624953,
+      "catalogLoadMs": 3.26520000000005,
+      "allShardsDecryptLoadMs": 253.4677999999999,
+      "coldLookupMs": {
+        "mean": 1.0221406249999951,
+        "p50": 0.9642999999998665,
+        "p95": 1.4703150000000957,
+        "p99": 1.770382000000147
+      },
+      "hotLookupUs": {
+        "mean": 2.8929000000026006,
+        "p50": 2.4000000003070454,
+        "p95": 4.199999999855208,
+        "p99": 6.79999999966185
+      },
+      "handshakeMs": 5.067800000000034,
       "handshakeLoadedShards": 0,
       "handshakeDerivedConcepts": 0,
       "activeConcepts": 16,
-      "activeCodebookDerivationMs": 0.4659000000000333,
-      "encodeUs": 30.204950000004374,
-      "decodeUs": 23.68950000000382,
+      "activeCodebookDerivationMs": {
+        "mean": 0.16974179687499458,
+        "p50": 0.13865000000009786,
+        "p95": 0.25922499999978754,
+        "p99": 0.5076649999999736
+      },
+      "encodeUs": {
+        "mean": 19.21235000000298,
+        "p50": 15.499999999974534,
+        "p95": 36.01000000005569,
+        "p99": 93.81300000010013
+      },
+      "decodeUs": {
+        "mean": 16.75265000000535,
+        "p50": 12.09999999991851,
+        "p95": 27.40499999993062,
+        "p99": 72.50799999976606
+      },
       "frameBytes": 75,
-      "rssMiB": 70.921875,
-      "heapUsedMiB": 11.862686157226562,
-      "peakRssMiB": 72.5625
+      "rssMiB": 74.84765625,
+      "heapUsedMiB": 14.71026611328125,
+      "peakRssMiB": 75.4375
     },
     {
       "concepts": 100000,
       "uniqueConcepts": 100000,
-      "buildMs": 13497.7963,
-      "packBytes": 25069092,
-      "catalogLoadMs": 4.532199999999648,
-      "allShardsDecryptLoadMs": 1216.7214000000004,
-      "coldLookupMs": 8.052600000000893,
-      "hotLookupUs": 4.299699999999939,
-      "handshakeMs": 9.587799999999334,
+      "buildMs": 13136.4603,
+      "packBytes": 25069096,
+      "catalogLoadMs": 3.145599999999831,
+      "allShardsDecryptLoadMs": 1057.7006999999994,
+      "coldLookupMs": {
+        "mean": 5.1103906249999795,
+        "p50": 4.674250000000939,
+        "p95": 6.259215000000857,
+        "p99": 17.444654999999205
+      },
+      "hotLookupUs": {
+        "mean": 3.3621799999966244,
+        "p50": 2.699999999094871,
+        "p95": 4.6999999995023245,
+        "p99": 7.601000000813678
+      },
+      "handshakeMs": 6.485099999999875,
       "handshakeLoadedShards": 0,
       "handshakeDerivedConcepts": 0,
       "activeConcepts": 16,
-      "activeCodebookDerivationMs": 0.6539999999995416,
-      "encodeUs": 26.125150000027134,
-      "decodeUs": 21.61044999996193,
+      "activeCodebookDerivationMs": {
+        "mean": 0.18272578124992833,
+        "p50": 0.15599999999994907,
+        "p95": 0.2756500000004962,
+        "p99": 0.4176300000001902
+      },
+      "encodeUs": {
+        "mean": 22.94705000000704,
+        "p50": 18.600000001242734,
+        "p95": 36.725000000569686,
+        "p99": 100.5670000004647
+      },
+      "decodeUs": {
+        "mean": 19.017350000020087,
+        "p50": 16.499999999723514,
+        "p95": 33.30500000092797,
+        "p99": 99.22699999875474
+      },
       "frameBytes": 75,
-      "rssMiB": 206.1640625,
-      "heapUsedMiB": 62.813880920410156,
-      "peakRssMiB": 207.90234375
+      "rssMiB": 222.5,
+      "heapUsedMiB": 76.79900360107422,
+      "peakRssMiB": 227.921875
     },
     {
       "concepts": 1000000,
       "uniqueConcepts": 1000000,
-      "buildMs": 232757.7416,
-      "packBytes": 250703349,
-      "catalogLoadMs": 9.697400000004563,
-      "allShardsDecryptLoadMs": 9801.207900000009,
-      "coldLookupMs": 54.61840000000666,
-      "hotLookupUs": 5.019690000000992,
-      "handshakeMs": 36.35540000000037,
+      "buildMs": 406422.3474,
+      "packBytes": 250703345,
+      "catalogLoadMs": 15.880999999993946,
+      "allShardsDecryptLoadMs": 12221.353500000027,
+      "coldLookupMs": {
+        "mean": 43.866818750000675,
+        "p50": 43.939849999995204,
+        "p95": 53.0679199999984,
+        "p99": 62.01806200000107
+      },
+      "hotLookupUs": {
+        "mean": 4.354310000210535,
+        "p50": 3.700000001117587,
+        "p95": 5.100000009406358,
+        "p99": 26.003000012133334
+      },
+      "handshakeMs": 35.2054000000353,
       "handshakeLoadedShards": 0,
       "handshakeDerivedConcepts": 0,
       "activeConcepts": 16,
-      "activeCodebookDerivationMs": 3.0205500000010943,
-      "encodeUs": 35.092649999962305,
-      "decodeUs": 25.359150000003865,
+      "activeCodebookDerivationMs": {
+        "mean": 0.2556847656260288,
+        "p50": 0.22349999999278225,
+        "p95": 0.40462500003923196,
+        "p99": 0.8894599999970519
+      },
+      "encodeUs": {
+        "mean": 28.093050000083167,
+        "p50": 20.00000001862645,
+        "p95": 52.45499998854934,
+        "p99": 154.6750000090105
+      },
+      "decodeUs": {
+        "mean": 22.153099999704864,
+        "p50": 17.149999970570207,
+        "p95": 43.01500000583472,
+        "p99": 93.31600000732577
+      },
       "frameBytes": 75,
-      "rssMiB": 299.80078125,
-      "heapUsedMiB": 57.700172424316406,
-      "peakRssMiB": 329.640625
+      "rssMiB": 290.515625,
+      "heapUsedMiB": 87.64239501953125,
+      "peakRssMiB": 314.3671875
     }
   ]
 }

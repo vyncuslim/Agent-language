@@ -19,6 +19,39 @@ import {
 } from "../src/negotiation.js";
 import { VamlSessionRuntime } from "../src/runtime.js";
 import { ValueType } from "../src/types.js";
+
+const HOT_LOOKUP_SAMPLES = 10_000;
+const ACTIVE_DERIVATION_SAMPLES = 128;
+const FRAME_SAMPLES = 2_000;
+const COLD_LOOKUP_SAMPLES = 64;
+
+interface LatencyStats {
+  mean: number;
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
+function percentile(sorted: number[], fraction: number): number {
+  if (sorted.length === 0) throw new Error("Cannot calculate an empty percentile");
+  const position = (sorted.length - 1) * fraction;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+}
+
+function latencyStats(samples: number[]): LatencyStats {
+  if (samples.length === 0) throw new Error("Cannot calculate empty latency statistics");
+  const sorted = [...samples].sort((a, b) => a - b);
+  return {
+    mean: samples.reduce((total, value) => total + value, 0) / samples.length,
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    p99: percentile(sorted, 0.99),
+  };
+}
+
 async function measure(count: number) {
   const dir = await mkdtemp(join(tmpdir(), "vaml-bench-")),
     semanticKey = randomBytes(32),
@@ -57,16 +90,43 @@ async function measure(count: number) {
     const handshakeMs = performance.now() - t,
       handshakeShards = index.loadedShards(),
       handshakeConcepts = a.conceptToCode.size;
-    t = performance.now();
+    const coldLookupMsSamples: number[] = [];
+    for (let i = 0; i < COLD_LOOKUP_SAMPLES; i++) {
+      const coldIndex = new ShardedSemanticIndex(dir, packKey, built.catalogId, 1, 1);
+      try {
+        t = performance.now();
+        coldIndex.semantic(active[0]);
+        coldLookupMsSamples.push(performance.now() - t);
+      } finally {
+        coldIndex.close();
+      }
+    }
+    const hotLookupUsSamples: number[] = [];
     index.semantic(active[0]);
-    const coldLookupMs = performance.now() - t;
-    t = performance.now();
-    for (let i = 0; i < 10000; i++) index.semantic(active[i % active.length]);
-    const lookupUs = ((performance.now() - t) * 1000) / 10000;
-    t = performance.now();
+    for (let i = 0; i < HOT_LOOKUP_SAMPLES; i++) {
+      t = performance.now();
+      index.semantic(active[i % active.length]);
+      hotLookupUsSamples.push((performance.now() - t) * 1000);
+    }
+    const activeCodebookDerivationMsSamples: number[] = [];
+    for (let i = 0; i < ACTIVE_DERIVATION_SAMPLES; i++) {
+      const sampleA = beginHandshake("01", defaultManifest([built.catalogId]));
+      const sampleB = beginHandshake("02", defaultManifest([built.catalogId]));
+      const aSession = finishHandshake(sampleA, sampleB.hello, index, packKey, "02");
+      const bSession = finishHandshake(sampleB, sampleA.hello, index, packKey, "01");
+      verifyConfirmation(aSession, bSession.confirmationTag);
+      verifyConfirmation(bSession, aSession.confirmationTag);
+      t = performance.now();
+      aSession.activate(active);
+      activeCodebookDerivationMsSamples.push(performance.now() - t);
+      t = performance.now();
+      bSession.activate(active);
+      activeCodebookDerivationMsSamples.push(performance.now() - t);
+      for (const key of Object.values(aSession.context.keys)) key.fill(0);
+      for (const key of Object.values(bSession.context.keys)) key.fill(0);
+    }
     a.activate(active);
     b.activate(active);
-    const deriveMs = (performance.now() - t) / 2;
     const ar = new VamlSessionRuntime(
         a.context,
         a.conceptToCode,
@@ -76,17 +136,17 @@ async function measure(count: number) {
     const fields = [
       { conceptId: active[0], valueType: ValueType.U64, value: 42n },
     ];
-    let encodeMs = 0,
-      decodeMs = 0,
-      frameBytes = 0;
-    for (let i = 0; i < 2000; i++) {
+    const encodeUsSamples: number[] = [];
+    const decodeUsSamples: number[] = [];
+    let frameBytes = 0;
+    for (let i = 0; i < FRAME_SAMPLES; i++) {
       t = performance.now();
       const frame = ar.encode(fields);
-      encodeMs += performance.now() - t;
+      encodeUsSamples.push((performance.now() - t) * 1000);
       frameBytes = frame.length;
       t = performance.now();
       br.decode(frame);
-      decodeMs += performance.now() - t;
+      decodeUsSamples.push((performance.now() - t) * 1000);
     }
     t = performance.now();
     index.verify();
@@ -102,15 +162,15 @@ async function measure(count: number) {
       packBytes: built.bytes,
       catalogLoadMs,
       allShardsDecryptLoadMs,
-      coldLookupMs,
-      hotLookupUs: lookupUs,
+      coldLookupMs: latencyStats(coldLookupMsSamples),
+      hotLookupUs: latencyStats(hotLookupUsSamples),
       handshakeMs,
       handshakeLoadedShards: handshakeShards,
       handshakeDerivedConcepts: handshakeConcepts,
       activeConcepts: active.length,
-      activeCodebookDerivationMs: deriveMs,
-      encodeUs: (encodeMs * 1000) / 2000,
-      decodeUs: (decodeMs * 1000) / 2000,
+      activeCodebookDerivationMs: latencyStats(activeCodebookDerivationMsSamples),
+      encodeUs: latencyStats(encodeUsSamples),
+      decodeUs: latencyStats(decodeUsSamples),
       frameBytes,
       rssMiB: memory.rss / 1048576,
       heapUsedMiB: memory.heapUsed / 1048576,
@@ -157,7 +217,7 @@ if (sizeIndex >= 0) {
         cpu: cpus()[0]?.model,
         totalMemoryGiB: totalmem() / 1073741824,
         method:
-          "Synthetic numeric concept records; isolated process per size; 16 active concepts from one shard; mean latencies; 2000 sequential encode/decode operations; local disk includes encrypted staging",
+          "Synthetic numeric concept records; isolated process per size; 16 active concepts from one shard; latency samples report mean and linearly interpolated p50/p95/p99; 64 logical cold shard lookups, 10,000 hot lookups, 256 per-side active derivations, and 2,000 sequential encode/decode operations; local disk includes encrypted staging",
         results,
       },
       null,
