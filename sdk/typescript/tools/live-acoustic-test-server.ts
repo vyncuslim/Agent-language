@@ -10,12 +10,12 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = join(here, "live-acoustic-test.html");
+const page = join(here, "live-acoustic-test-v2.html");
 
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${host}:${port}`);
-    if (url.pathname !== "/" && url.pathname !== "/live-acoustic-test.html") {
+    if (url.pathname !== "/" && url.pathname !== "/live-acoustic-test-v2.html") {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("Not found");
       return;
@@ -37,7 +37,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log(JSON.stringify({
-    name: "VAML Live Acoustic Test",
+    name: "VAML Live Acoustic Test v2",
     url: `http://${host}:${port}`,
     instruction: "Open the URL in Chrome/Edge/Safari/Firefox, allow microphone access, use speakers (not headphones), then press Start physical loopback test.",
   }));
