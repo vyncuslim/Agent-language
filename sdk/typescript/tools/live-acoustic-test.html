@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VAML Live Acoustic Test</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    body { margin: 0; background: #0b0f14; color: #e6edf3; }
+    main { max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { color: #aab6c3; line-height: 1.6; }
+    .warn { border: 1px solid #5f4b00; background: #1f1900; padding: 14px; border-radius: 10px; }
+    button { margin: 18px 0; padding: 12px 18px; border-radius: 9px; border: 0; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    .grid { display: grid; grid-template-columns: 220px 1fr; border: 1px solid #27303a; border-radius: 10px; overflow: hidden; }
+    .grid div { padding: 11px 12px; border-bottom: 1px solid #27303a; }
+    .grid div:nth-last-child(-n+2) { border-bottom: 0; }
+    .label { background: #111820; color: #93a4b6; }
+    .value { overflow-wrap: anywhere; }
+    .pass { color: #3fb950; font-weight: 700; }
+    .fail { color: #f85149; font-weight: 700; }
+    .pending { color: #d29922; }
+    pre { white-space: pre-wrap; border: 1px solid #27303a; background: #111820; padding: 12px; border-radius: 10px; color: #aab6c3; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>VAML Live Acoustic Test</h1>
+  <p>Physical speaker → air → microphone loopback validation for VAML Acoustic Transport. The test frame is random opaque bytes; it contains no production semantic content or keys.</p>
+  <div class="warn">
+    Use the computer's <strong>speakers</strong>, not headphones. Keep speaker volume around 50–70%. Allow microphone permission when prompted. Place the microphone within roughly 0.3–1 m of the speaker for the first run.
+  </div>
+
+  <button id="start">Start physical loopback test</button>
+  <span id="status" class="pending">Ready</span>
+
+  <div class="grid">
+    <div class="label">TRANSMITTED FRAME</div><div class="value" id="tx">—</div>
+    <div class="label">RECEIVED FRAME</div><div class="value" id="rx">—</div>
+    <div class="label">BYTE MATCH</div><div class="value" id="match">—</div>
+    <div class="label">CLOCK DRIFT</div><div class="value" id="drift">—</div>
+    <div class="label">CRC</div><div class="value" id="crc">—</div>
+    <div class="label">DECODE LATENCY</div><div class="value" id="latency">—</div>
+    <div class="label">AUDIO SAMPLE RATE</div><div class="value" id="rate">—</div>
+    <div class="label">CAPTURED AUDIO</div><div class="value" id="capture">—</div>
+  </div>
+
+  <h2>Diagnostic log</h2>
+  <pre id="log">No test run yet.</pre>
+</main>
+<script>
+(() => {
+  "use strict";
+
+  const PROFILE = {
+    symbolMs: 10,
+    frequencies: [1200, 1800, 2400, 3000],
+    amplitude: 0.55,
+    preamble: [0,3,1,2,0,3,1,2,3,0,2,1,3,0,2,1],
+  };
+  const MAGIC = [86, 65, 67, 49]; // VAC1
+  const FRAME_BYTES = 32;
+  const MAX_FRAME_BYTES = 4096;
+
+  const $ = (id) => document.getElementById(id);
+  const button = $("start");
+  const status = $("status");
+  const log = $("log");
+
+  function setResult(id, text, state) {
+    const el = $(id);
+    el.textContent = text;
+    el.className = "value" + (state ? ` ${state}` : "");
+  }
+
+  function hex(bytes) {
+    return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  function equalBytes(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    return diff === 0;
+  }
+
+  function writeU32BE(target, offset, value) {
+    target[offset] = (value >>> 24) & 255;
+    target[offset + 1] = (value >>> 16) & 255;
+    target[offset + 2] = (value >>> 8) & 255;
+    target[offset + 3] = value & 255;
+  }
+
+  function readU32BE(data, offset) {
+    return (((data[offset] << 24) >>> 0) + (data[offset + 1] << 16) + (data[offset + 2] << 8) + data[offset + 3]) >>> 0;
+  }
+
+  function crc32(data) {
+    let crc = 0xffffffff;
+    for (const byte of data) {
+      crc ^= byte;
+      for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  function bytesToSymbols(data) {
+    const out = [];
+    for (const byte of data) out.push((byte >>> 6) & 3, (byte >>> 4) & 3, (byte >>> 2) & 3, byte & 3);
+    return out;
+  }
+
+  function symbolsToBytes(symbols) {
+    if (symbols.length % 4) throw new Error("Invalid acoustic symbol count");
+    const out = new Uint8Array(symbols.length / 4);
+    for (let i = 0; i < out.length; i++) {
+      const p = i * 4;
+      out[i] = (symbols[p] << 6) | (symbols[p + 1] << 4) | (symbols[p + 2] << 2) | symbols[p + 3];
+    }
+    return out;
+  }
+
+  function createPacket(frame) {
+    const packet = new Uint8Array(4 + 4 + frame.length + 4);
+    packet.set(MAGIC, 0);
+    writeU32BE(packet, 4, frame.length);
+    packet.set(frame, 8);
+    writeU32BE(packet, 8 + frame.length, crc32(packet.subarray(0, 8 + frame.length)));
+    return packet;
+  }
+
+  function encodeAudio(frame, sampleRate) {
+    const symbols = [...PROFILE.preamble, ...bytesToSymbols(createPacket(frame))];
+    const symbolSamples = Math.round(sampleRate * PROFILE.symbolMs / 1000);
+    const leading = Math.round(sampleRate * 0.30);
+    const trailing = Math.round(sampleRate * 0.30);
+    const pcm = new Float32Array(leading + symbols.length * symbolSamples + trailing);
+    const ramp = Math.max(1, Math.min(Math.floor(symbolSamples / 8), 48));
+    let cursor = leading;
+    let phase = 0;
+    for (const symbol of symbols) {
+      const step = 2 * Math.PI * PROFILE.frequencies[symbol] / sampleRate;
+      for (let i = 0; i < symbolSamples; i++) {
+        const edge = Math.min(1, i / ramp, (symbolSamples - 1 - i) / ramp);
+        pcm[cursor++] = Math.sin(phase) * PROFILE.amplitude * Math.max(0, edge);
+        phase += step;
+        if (phase > Math.PI * 2) phase -= Math.PI * 2;
+      }
+    }
+    return pcm;
+  }
+
+  function goertzelPower(samples, start, count, frequency, sampleRate) {
+    const omega = 2 * Math.PI * frequency / sampleRate;
+    const coefficient = 2 * Math.cos(omega);
+    let s0 = 0, s1 = 0, s2 = 0;
+    for (let i = 0; i < count; i++) {
+      const x = samples[start + i] || 0;
+      s0 = x + coefficient * s1 - s2;
+      s2 = s1;
+      s1 = s0;
+    }
+    return s1 * s1 + s2 * s2 - coefficient * s1 * s2;
+  }
+
+  function decideSymbol(samples, predictedStart, samplesPerSymbol, sampleRate, searchRadius) {
+    const guard = Math.max(1, Math.round(samplesPerSymbol * 0.10));
+    const window = Math.max(32, Math.round(samplesPerSymbol) - guard * 2);
+    const base = Math.round(predictedStart);
+    let best = null;
+    for (let timing = -searchRadius; timing <= searchRadius; timing += 2) {
+      const start = base + timing;
+      const analysisStart = start + guard;
+      if (analysisStart < 0 || analysisStart + window > samples.length) continue;
+      let bestSymbol = 0;
+      let bestPower = -Infinity;
+      let secondPower = -Infinity;
+      for (let symbol = 0; symbol < 4; symbol++) {
+        const power = goertzelPower(samples, analysisStart, window, PROFILE.frequencies[symbol], sampleRate);
+        if (power > bestPower) {
+          secondPower = bestPower;
+          bestPower = power;
+          bestSymbol = symbol;
+        } else if (power > secondPower) {
+          secondPower = power;
+        }
+      }
+      const quality = bestPower > 0 ? Math.max(0, (bestPower - Math.max(0, secondPower)) / bestPower) : 0;
+      if (!best || quality > best.quality) best = { symbol: bestSymbol, start, quality };
+    }
+    return best;
+  }
+
+  function rms(samples, start, count) {
+    let sum = 0;
+    const end = Math.min(samples.length, start + count);
+    if (end <= start) return 0;
+    for (let i = start; i < end; i++) sum += samples[i] * samples[i];
+    return Math.sqrt(sum / (end - start));
+  }
+
+  function likelySignalStart(samples, sampleRate, nominal) {
+    const baselineCount = Math.min(samples.length, Math.round(sampleRate * 0.25));
+    const baseline = rms(samples, 0, baselineCount);
+    const block = Math.max(32, Math.round(sampleRate * 0.005));
+    const threshold = Math.max(0.003, baseline * 4.0);
+    for (let start = baselineCount; start + block < samples.length; start += block) {
+      if (rms(samples, start, block) >= threshold) return Math.max(0, start - nominal);
+    }
+    return -1;
+  }
+
+  function acquireLock(samples, sampleRate) {
+    const nominal = sampleRate * PROFILE.symbolMs / 1000;
+    const likely = likelySignalStart(samples, sampleRate, nominal);
+    if (likely < 0) throw new Error("No acoustic signal found above microphone noise floor");
+
+    let best = null;
+    const maxDriftPpm = 15000;
+    const stepPpm = 1000;
+    const offsetStep = Math.max(1, Math.round(nominal / 8));
+    const offsetStart = Math.max(0, likely - Math.round(nominal));
+    const offsetEnd = Math.min(samples.length - Math.ceil(PROFILE.preamble.length * nominal), likely + Math.round(nominal * 2));
+
+    for (let ppm = -maxDriftPpm; ppm <= maxDriftPpm; ppm += stepPpm) {
+      const sps = nominal * (1 + ppm / 1_000_000);
+      for (let offset = offsetStart; offset <= offsetEnd; offset += offsetStep) {
+        let matches = 0;
+        let quality = 0;
+        let valid = true;
+        for (let i = 0; i < PROFILE.preamble.length; i++) {
+          const d = decideSymbol(samples, offset + i * sps, sps, sampleRate, 0);
+          if (!d) { valid = false; break; }
+          if (d.symbol === PROFILE.preamble[i]) { matches++; quality += d.quality; }
+          else quality -= 0.5;
+        }
+        if (!valid) continue;
+        const score = matches * 10 + quality;
+        if (!best || score > best.score) best = { start: offset, samplesPerSymbol: sps, matches, score };
+      }
+    }
+
+    if (!best || best.matches < Math.floor(PROFILE.preamble.length * 0.85)) {
+      throw new Error(`Preamble lock failed (best matches: ${best ? best.matches : 0}/${PROFILE.preamble.length})`);
+    }
+    return best;
+  }
+
+  function decodeSymbols(samples, cursor, count, sampleRate, sps) {
+    const symbols = new Array(count);
+    const timingSearch = Math.max(4, Math.round(sps * 0.025));
+    for (let i = 0; i < count; i++) {
+      const d = decideSymbol(samples, cursor, sps, sampleRate, timingSearch);
+      if (!d) throw new Error("Truncated acoustic symbol stream");
+      symbols[i] = d.symbol;
+      cursor = d.start + sps;
+    }
+    return { symbols, cursor };
+  }
+
+  function decodeCaptured(samples, sampleRate) {
+    const nominal = sampleRate * PROFILE.symbolMs / 1000;
+    const lock = acquireLock(samples, sampleRate);
+    let cursor = lock.start + PROFILE.preamble.length * lock.samplesPerSymbol;
+
+    const headerResult = decodeSymbols(samples, cursor, 32, sampleRate, lock.samplesPerSymbol);
+    cursor = headerResult.cursor;
+    const header = symbolsToBytes(headerResult.symbols);
+    for (let i = 0; i < 4; i++) if (header[i] !== MAGIC[i]) throw new Error("Invalid acoustic packet magic");
+    const frameLength = readU32BE(header, 4);
+    if (frameLength < 1 || frameLength > MAX_FRAME_BYTES) throw new Error("Acoustic frame size limit");
+
+    const remainingSymbols = (frameLength + 4) * 4;
+    const bodyResult = decodeSymbols(samples, cursor, remainingSymbols, sampleRate, lock.samplesPerSymbol);
+    cursor = bodyResult.cursor;
+    const body = symbolsToBytes(bodyResult.symbols);
+    const packet = new Uint8Array(header.length + body.length);
+    packet.set(header, 0);
+    packet.set(body, header.length);
+    const expected = readU32BE(packet, packet.length - 4);
+    const actual = crc32(packet.subarray(0, packet.length - 4));
+    if (expected !== actual) {
+      const error = new Error(`CRC mismatch: expected ${expected.toString(16)}, actual ${actual.toString(16)}`);
+      error.code = "CRC";
+      throw error;
+    }
+
+    const totalSymbols = PROFILE.preamble.length + 32 + remainingSymbols;
+    const observedSps = (cursor - lock.start) / totalSymbols;
+    const driftPpm = ((observedSps / nominal) - 1) * 1_000_000;
+    return {
+      frame: packet.slice(8, 8 + frameLength),
+      crcValid: true,
+      driftPpm,
+      preambleMatches: lock.matches,
+    };
+  }
+
+  async function runTest() {
+    button.disabled = true;
+    status.textContent = "Requesting microphone…";
+    status.className = "pending";
+    for (const id of ["tx","rx","match","drift","crc","latency","rate","capture"]) setResult(id, "—");
+    log.textContent = "Starting physical acoustic loopback test…";
+
+    let stream = null;
+    let context = null;
+    let source = null;
+    let processor = null;
+    let sink = null;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Browser microphone API is unavailable");
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) throw new Error("WebAudio is unavailable");
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        video: false,
+      });
+      context = new AudioCtx();
+      if (context.state === "suspended") await context.resume();
+      const sampleRate = context.sampleRate;
+      setResult("rate", `${sampleRate} Hz`);
+
+      const transmitted = new Uint8Array(FRAME_BYTES);
+      crypto.getRandomValues(transmitted);
+      setResult("tx", hex(transmitted));
+
+      const chunks = [];
+      source = context.createMediaStreamSource(stream);
+      processor = context.createScriptProcessor(2048, 1, 1);
+      sink = context.createGain();
+      sink.gain.value = 0;
+      processor.onaudioprocess = (event) => {
+        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      processor.connect(sink);
+      sink.connect(context.destination);
+
+      status.textContent = "Listening… speaker playback starts shortly";
+      await new Promise(resolve => setTimeout(resolve, 650));
+
+      const pcm = encodeAudio(transmitted, sampleRate);
+      const audioBuffer = context.createBuffer(1, pcm.length, sampleRate);
+      audioBuffer.copyToChannel(pcm, 0);
+      const speaker = context.createBufferSource();
+      speaker.buffer = audioBuffer;
+      speaker.connect(context.destination);
+      status.textContent = "Playing VAML machine audio through the real speaker…";
+      await new Promise((resolve, reject) => {
+        speaker.onended = resolve;
+        try { speaker.start(); } catch (error) { reject(error); }
+      });
+      status.textContent = "Capturing tail and decoding…";
+      await new Promise(resolve => setTimeout(resolve, 850));
+
+      processor.onaudioprocess = null;
+      const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const recorded = new Float32Array(total);
+      let offset = 0;
+      for (const chunk of chunks) { recorded.set(chunk, offset); offset += chunk.length; }
+      setResult("capture", `${recorded.length} samples (${(recorded.length / sampleRate).toFixed(2)} s)`);
+
+      const decodeStarted = performance.now();
+      const decoded = decodeCaptured(recorded, sampleRate);
+      const decodeLatency = performance.now() - decodeStarted;
+      const matched = equalBytes(transmitted, decoded.frame);
+
+      setResult("rx", hex(decoded.frame));
+      setResult("match", matched ? "YES" : "NO", matched ? "pass" : "fail");
+      const driftPercent = decoded.driftPpm / 10000;
+      setResult("drift", `${decoded.driftPpm.toFixed(1)} ppm (${driftPercent >= 0 ? "+" : ""}${driftPercent.toFixed(4)}%)`);
+      setResult("crc", decoded.crcValid ? "PASS" : "FAIL", decoded.crcValid ? "pass" : "fail");
+      setResult("latency", `${decodeLatency.toFixed(2)} ms`);
+      status.textContent = matched ? "PASS — physical speaker/microphone loopback recovered the exact frame" : "FAIL — decoded bytes did not match";
+      status.className = matched ? "pass" : "fail";
+      log.textContent = [
+        `Preamble matches: ${decoded.preambleMatches}/${PROFILE.preamble.length}`,
+        `Sample rate: ${sampleRate} Hz`,
+        `Captured samples: ${recorded.length}`,
+        `Decode compute latency: ${decodeLatency.toFixed(2)} ms`,
+        `Clock drift: ${decoded.driftPpm.toFixed(1)} ppm`,
+        `CRC: PASS`,
+        `Exact byte match: ${matched ? "YES" : "NO"}`,
+      ].join("\n");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const crcFailure = error && error.code === "CRC";
+      setResult("crc", crcFailure ? "FAIL" : "NOT REACHED", crcFailure ? "fail" : "pending");
+      setResult("match", "NO", "fail");
+      status.textContent = `FAIL — ${message}`;
+      status.className = "fail";
+      log.textContent = `${message}\n\nCheck that speakers are enabled, headphones are disconnected, microphone permission is allowed, and speaker volume is around 50–70%.`;
+    } finally {
+      try { if (source) source.disconnect(); } catch {}
+      try { if (processor) processor.disconnect(); } catch {}
+      try { if (sink) sink.disconnect(); } catch {}
+      if (stream) for (const track of stream.getTracks()) track.stop();
+      if (context && context.state !== "closed") await context.close();
+      button.disabled = false;
+    }
+  }
+
+  button.addEventListener("click", runTest);
+})();
+</script>
+</body>
+</html>
