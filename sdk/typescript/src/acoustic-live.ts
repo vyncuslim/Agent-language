@@ -69,7 +69,7 @@ export class AcousticMicrophoneReceiver {
   private readonly onFrame?: (frame: AcousticDecodedFrame) => void;
   private readonly onDecodeError?: (error: Error) => void;
   private readonly resampler: StreamingLinearResampler;
-  private buffer = new Int16Array(0);
+  private buffer: Int16Array<ArrayBufferLike> = new Int16Array(0);
   private lock: ClockLock | undefined;
   private newSamplesSinceScan = 0;
 
