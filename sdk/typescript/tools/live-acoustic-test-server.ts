@@ -8,12 +8,12 @@ const port = Number(process.env.VAML_LIVE_AUDIO_PORT ?? 8787);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid VAML_LIVE_AUDIO_PORT");
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = join(here, "live-acoustic-test-v3.html");
+const page = join(here, "live-acoustic-test-v4.html");
 
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${host}:${port}`);
-    if (url.pathname !== "/" && url.pathname !== "/live-acoustic-test-v3.html") {
+    if (url.pathname !== "/" && url.pathname !== "/live-acoustic-test-v4.html") {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("Not found");
       return;
@@ -35,9 +35,9 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log(JSON.stringify({
-    name: "VAML Live Acoustic Test v3",
+    name: "VAML Live Acoustic Test v4",
     url: `http://${host}:${port}`,
-    instruction: "Run Reference 0.2 first, then Robust Physical Probe if the reference profile fails.",
+    instruction: "Start with Robust Physical Probe. v4 uses bounded synchronization search to keep the browser responsive.",
   }));
 });
 
