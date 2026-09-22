@@ -65,7 +65,9 @@ test("agents keep one authenticated session across a multi-turn VAML conversatio
     {
       idleTimeoutMs: 30_000,
       maxHistory: 16,
-      onTurn: (turn) => clientTurns.push(`${turn.direction}:${turn.message.messageId}`),
+      onTurn: (turn) => {
+        clientTurns.push(`${turn.direction}:${turn.message.messageId}`);
+      },
     },
   );
 
