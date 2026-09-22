@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VAML Two-Computer Acoustic Test v4</title>
+<style>
+:root{color-scheme:dark;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+body{margin:0;background:#0b0f14;color:#e6edf3}
+main{max-width:1050px;margin:auto;padding:32px 20px 60px}
+p{color:#aab6c3;line-height:1.6}
+.notice{border:1px solid #31506f;background:#0d1b2a;padding:14px;border-radius:10px}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}
+button{padding:12px 18px;border:0;border-radius:9px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.5}
+.grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #27303a;border-radius:10px;overflow:hidden}
+.grid div{padding:11px 12px;border-bottom:1px solid #27303a}
+.label{background:#111820;color:#93a4b6}.value{overflow-wrap:anywhere}
+.pass{color:#3fb950;font-weight:700}.fail{color:#f85149;font-weight:700}.pending{color:#d29922;font-weight:700}
+pre{white-space:pre-wrap;border:1px solid #27303a;background:#111820;padding:12px;border-radius:10px;color:#aab6c3}
+.small{font-size:12px;color:#93a4b6}
+</style>
+</head>
+<body><main>
+<h1>VAML Two-Computer Acoustic Test v4</h1>
+<p>Real Computer A → speaker → air → microphone → Computer B validation. v4 adds an explicit quiet calibration phase and robust burst detection before per-burst decoding and confidence-weighted combining.</p>
+<div class="notice"><strong>Important order:</strong> On Computer B click <strong>Arm Receiver</strong>. While B says <strong>CALIBRATING — DO NOT SEND YET</strong>, do nothing on A. Only when B changes to <strong>LISTENING — SEND NOW</strong> click <strong>Send 3-Burst Probe</strong> on Computer A. Start at 10–30 cm and 60–70% sender volume.</div>
+<div class="actions"><button id="receive">Computer B — Arm Receiver</button><button id="send">Computer A — Send 3-Burst Probe</button><span id="status" class="pending">Ready</span></div>
+<div class="grid">
+<div class="label">ROLE</div><div class="value" id="role">—</div>
+<div class="label">EXPECTED FRAME</div><div class="value" id="expected">—</div>
+<div class="label">FINAL RECEIVED FRAME</div><div class="value" id="received">—</div>
+<div class="label">BYTE MATCH</div><div class="value" id="match">—</div>
+<div class="label">RECOVERY MODE</div><div class="value" id="mode">—</div>
+<div class="label">BURSTS FOUND</div><div class="value" id="bursts">—</div>
+<div class="label">CRC</div><div class="value" id="crc">—</div>
+<div class="label">BIT ERRORS</div><div class="value" id="biterrors">—</div>
+<div class="label">DETECTOR</div><div class="value" id="detector">—</div>
+<div class="label">AUDIO SAMPLE RATE</div><div class="value" id="rate">—</div>
+<div class="label">MIC DSP</div><div class="value" id="dsp">—</div>
+<div class="label">CAPTURE</div><div class="value" id="capture">—</div>
+</div>
+<h2>Per-burst diagnostics</h2><pre id="log">No test run yet.</pre>
+<p class="small">PASS remains strict: valid VAC1 magic, expected length, valid CRC32 and exact payload equality are all required. Calibration and soft combining never bypass CRC.</p>
+<script>
+(()=>{"use strict";
+const P={symbolMs:26,frequencies:[800,1200,1600,2000],amplitude:.72,preamble:[0,3,1,2,0,3,1,2,3,0,2,1,3,0,2,1,0,2,3,1,0,2,3,1,2,0,1,3,2,0,1,3]};
+const MAGIC=[86,65,67,49];
+const EXPECTED=Uint8Array.from([0xa3,0x4f,0x91,0x2c,0x77,0x0d,0xe8,0x51]);
+const REPETITIONS=3,GAP_MS=650,CALIBRATION_MS=1200,CAPTURE_SECONDS=16;
+const $=id=>document.getElementById(id),status=$("status"),log=$("log"),receiveBtn=$("receive"),sendBtn=$("send");
+const set=(id,text,state)=>{const e=$(id);e.textContent=text;e.className="value"+(state?` ${state}`:"")};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const hex=b=>Array.from(b,x=>x.toString(16).padStart(2,"0")).join("");
+function equal(a,b){if(!a||a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a[i]^b[i];return d===0}
+function bitErrors(a,b){if(!a||a.length!==b.length)return null;let n=0;for(let i=0;i<a.length;i++){let v=a[i]^b[i];while(v){n+=v&1;v>>>=1}}return n}
+function w32(t,o,v){t[o]=(v>>>24)&255;t[o+1]=(v>>>16)&255;t[o+2]=(v>>>8)&255;t[o+3]=v&255}
+function r32(d,o){return(((d[o]<<24)>>>0)+(d[o+1]<<16)+(d[o+2]<<8)+d[o+3])>>>0}
+function crc32(data){let c=0xffffffff;for(const b of data){c^=b;for(let i=0;i<8;i++)c=(c>>>1)^(0xedb88320&-(c&1))}return(c^0xffffffff)>>>0}
+function b2s(data){const o=[];for(const b of data)o.push((b>>>6)&3,(b>>>4)&3,(b>>>2)&3,b&3);return o}
+function s2b(s){const o=new Uint8Array(Math.floor(s.length/4));for(let i=0;i<o.length;i++){const p=i*4;o[i]=(s[p]<<6)|(s[p+1]<<4)|(s[p+2]<<2)|s[p+3]}return o}
+function packet(frame){const p=new Uint8Array(12+frame.length);p.set(MAGIC);w32(p,4,frame.length);p.set(frame,8);w32(p,8+frame.length,crc32(p.subarray(0,8+frame.length)));return p}
+const EXPECTED_PACKET=packet(EXPECTED),PACKET_SYMBOLS=b2s(EXPECTED_PACKET);
+function encode(frame,sr){const symbols=[...P.preamble,...b2s(packet(frame))],sps=Math.round(sr*P.symbolMs/1000),lead=Math.round(sr*.25),tail=Math.round(sr*.25),pcm=new Float32Array(lead+symbols.length*sps+tail),ramp=Math.max(1,Math.min(Math.floor(sps/10),64));let cur=lead,phase=0;for(const sym of symbols){const step=2*Math.PI*P.frequencies[sym]/sr;for(let i=0;i<sps;i++){const edge=Math.min(1,i/ramp,(sps-1-i)/ramp);pcm[cur++]=Math.sin(phase)*P.amplitude*Math.max(0,edge);phase+=step;if(phase>Math.PI*2)phase-=Math.PI*2}}return pcm}
+function goertzel(x,start,count,f,sr){const w=2*Math.PI*f/sr,c=2*Math.cos(w);let s0=0,s1=0,s2=0;for(let i=0;i<count;i++){const v=x[start+i]||0;s0=v+c*s1-s2;s2=s1;s1=s0}return s1*s1+s2*s2-c*s1*s2}
+function decide(x,pred,sps,sr,search=0){const base=Math.round(pred),guard=Math.max(2,Math.round(sps*.22)),win=Math.max(64,Math.round(sps)-2*guard),step=search>4?2:1;let best=null;for(let dt=-search;dt<=search;dt+=step){const start=base+dt,a=start+guard;if(a<0||a+win>x.length)continue;let bs=0,bp=-Infinity,sp=-Infinity;for(let sym=0;sym<4;sym++){let pow=0;for(const df of[-45,0,45])pow=Math.max(pow,goertzel(x,a,win,P.frequencies[sym]+df,sr));if(pow>bp){sp=bp;bp=pow;bs=sym}else if(pow>sp)sp=pow}const q=bp>0?Math.max(0,(bp-Math.max(0,sp))/bp):0;if(!best||q>best.q)best={symbol:bs,start,q}}return best}
+function score(x,start,sps,sr,expected,search=0){let m=0,q=0,cur=start;for(const e of expected){const d=decide(x,cur,sps,sr,search);if(!d)return null;if(d.symbol===e){m++;q+=d.q}else q-=.25;cur=d.start+sps}return{matches:m,q,cursor:cur}}
+function rms(x,start,count){let sum=0,end=Math.min(x.length,start+count);if(end<=start)return 0;for(let i=start;i<end;i++)sum+=x[i]*x[i];return Math.sqrt(sum/(end-start))}
+function percentile(values,p){if(!values.length)return 0;const a=[...values].sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.max(0,Math.floor((a.length-1)*p)))]}
+function energyRegions(x,sr){
+  const block=Math.max(64,Math.round(sr*.02));
+  const levels=[];
+  for(let i=0;i+block<=x.length;i+=block)levels.push({start:i,r:rms(x,i,block)});
+  const vals=levels.map(v=>v.r),noise20=percentile(vals,.20),median=percentile(vals,.50),peak=vals.length?Math.max(...vals):0;
+  let threshold=Math.max(.0015,noise20*3.5,median*1.6);
+  if(peak>0&&threshold>peak*.55)threshold=peak*.35;
+  const maxGap=Math.round(sr*.32),padBefore=Math.round(sr*.15),padAfter=Math.round(sr*.25);
+  const regions=[];let open=false,start=0,lastHot=0,peakIn=0;
+  for(const b of levels){const hot=b.r>=threshold;if(hot){if(!open){open=true;start=b.start;peakIn=b.r}else peakIn=Math.max(peakIn,b.r);lastHot=b.start}else if(open&&b.start-lastHot>maxGap){regions.push({a:Math.max(0,start-padBefore),b:Math.min(x.length,lastHot+block+padAfter),peak:peakIn});open=false}}
+  if(open)regions.push({a:Math.max(0,start-padBefore),b:Math.min(x.length,lastHot+block+padAfter),peak:peakIn});
+  let filtered=regions.filter(r=>(r.b-r.a)/sr>1.2);
+  if(filtered.length>6)filtered=filtered.sort((u,v)=>v.peak-u.peak).slice(0,6).sort((u,v)=>u.a-v.a);
+  return{regions:filtered,noise20,median,peak,threshold};
+}
+function findLock(x,sr,region){const nominal=sr*P.symbolMs/1000,ra=region.a,rb=region.b,magic=b2s(Uint8Array.from(MAGIC)),coarse=[];const startMax=Math.min(rb,x.length-Math.ceil((P.preamble.length+20)*nominal));for(let off=ra;off<=startMax;off+=Math.max(8,Math.round(nominal/8))){const s=score(x,off,nominal,sr,P.preamble,0);if(s)coarse.push({start:off,sps:nominal,pre:s.matches,magic:0,score:s.matches*10+s.q})}coarse.sort((a,b)=>b.score-a.score);const fine=[];for(const seed of coarse.slice(0,6)){for(const ppm of[-10000,-5000,0,5000,10000]){const sps=nominal*(1+ppm/1e6);for(let d=-Math.round(nominal*.30);d<=Math.round(nominal*.30);d+=Math.max(2,Math.round(nominal/10))){const start=seed.start+d;if(start<ra||start>=rb)continue;const pre=score(x,start,sps,sr,P.preamble,0);if(!pre)continue;const mag=score(x,start+P.preamble.length*sps,sps,sr,magic,Math.max(2,Math.round(sps*.02)));if(!mag)continue;fine.push({start,sps,pre:pre.matches,magic:mag.matches,score:pre.matches*8+mag.matches*18+pre.q+mag.q})}}}fine.sort((a,b)=>b.score-a.score);return fine[0]||coarse[0]||null}
+function decodeRaw(x,sr,L){const symbols=[],qualities=[],search=Math.max(6,Math.round(L.sps*.045));let cur=L.start+P.preamble.length*L.sps;for(let i=0;i<PACKET_SYMBOLS.length;i++){const d=decide(x,cur,L.sps,sr,search);if(!d)throw Error("Truncated symbol stream");symbols.push(d.symbol);qualities.push(Math.max(.02,d.q));cur=d.start+L.sps}const raw=s2b(symbols),magicOk=raw.length>=4&&MAGIC.every((v,i)=>raw[i]===v),len=raw.length>=8?r32(raw,4):-1,crcRead=raw.length>=4?r32(raw,raw.length-4):-1,crcCalc=raw.length>=4?crc32(raw.subarray(0,raw.length-4)):-2,crcOk=crcRead===crcCalc,payload=raw.length>=12?raw.slice(8,8+EXPECTED.length):new Uint8Array(0);return{symbols,qualities,raw,magicOk,len,crcOk,payload,pre:L.pre,magic:L.magic}}
+function combine(decodes){const out=[];for(let i=0;i<PACKET_SYMBOLS.length;i++){const weights=[0,0,0,0];for(const d of decodes){const sym=d.symbols[i],w=d.qualities[i]??.02;if(sym>=0&&sym<4)weights[sym]+=w}let best=0;for(let s=1;s<4;s++)if(weights[s]>weights[best])best=s;out.push(best)}const raw=s2b(out),magicOk=MAGIC.every((v,i)=>raw[i]===v),len=r32(raw,4),crcRead=r32(raw,raw.length-4),crcCalc=crc32(raw.subarray(0,raw.length-4)),crcOk=crcRead===crcCalc,payload=raw.slice(8,8+EXPECTED.length);return{raw,payload,magicOk,len,crcOk}}
+async function send(){sendBtn.disabled=true;receiveBtn.disabled=true;set("role","Computer A — Sender");set("expected",hex(EXPECTED));status.textContent="Preparing speaker…";status.className="pending";let ctx=null;try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error("WebAudio unavailable");ctx=new AC();if(ctx.state==="suspended")await ctx.resume();set("rate",`${ctx.sampleRate} Hz`);const pcm=encode(EXPECTED,ctx.sampleRate);for(let i=1;i<=REPETITIONS;i++){status.textContent=`SENDING burst ${i}/${REPETITIONS}`;const ab=ctx.createBuffer(1,pcm.length,ctx.sampleRate);ab.copyToChannel(pcm,0);const src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);await new Promise((res,rej)=>{src.onended=res;try{src.start()}catch(e){rej(e)}});if(i<REPETITIONS)await wait(GAP_MS)}status.textContent="SENT — wait for Computer B";status.className="pass";log.textContent=`Sent ${REPETITIONS} identical physical bursts\nFrame: ${hex(EXPECTED)}\nBurst duration: ${(pcm.length/ctx.sampleRate).toFixed(2)} s`;}catch(e){status.textContent=`FAIL — ${e instanceof Error?e.message:String(e)}`;status.className="fail"}finally{if(ctx&&ctx.state!=="closed")await ctx.close();sendBtn.disabled=false;receiveBtn.disabled=false}}
+async function receive(){sendBtn.disabled=true;receiveBtn.disabled=true;for(const id of["received","match","mode","bursts","crc","biterrors","detector","capture"])set(id,"—");set("role","Computer B — Receiver");set("expected",hex(EXPECTED));status.textContent="Requesting microphone…";status.className="pending";let stream=null,ctx=null,source=null,processor=null,sink=null;try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});const track=stream.getAudioTracks()[0],settings=track?.getSettings?track.getSettings():{};set("dsp",`echo=${settings.echoCancellation??"n/a"}, noise=${settings.noiseSuppression??"n/a"}, agc=${settings.autoGainControl??"n/a"}`);const AC=window.AudioContext||window.webkitAudioContext;ctx=new AC();if(ctx.state==="suspended")await ctx.resume();const sr=ctx.sampleRate;set("rate",`${sr} Hz`);const chunks=[];source=ctx.createMediaStreamSource(stream);processor=ctx.createScriptProcessor(2048,1,1);sink=ctx.createGain();sink.gain.value=0;processor.onaudioprocess=e=>chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));source.connect(processor);processor.connect(sink);sink.connect(ctx.destination);
+status.textContent="CALIBRATING — DO NOT SEND YET";status.className="pending";log.textContent="Microphone calibration in progress. Keep the room quiet and do not send from Computer A yet.";await wait(CALIBRATION_MS);
+status.textContent="LISTENING — SEND NOW from Computer A";status.className="pending";for(let i=CAPTURE_SECONDS;i>0;i--){log.textContent=`Calibration complete. Send from Computer A now.\nCapture ends in ${i} s.`;await wait(1000)}
+processor.onaudioprocess=null;const total=chunks.reduce((s,c)=>s+c.length,0),recorded=new Float32Array(total);let o=0;for(const c of chunks){recorded.set(c,o);o+=c.length}set("capture",`${recorded.length} samples (${(recorded.length/sr).toFixed(2)} s)`);status.textContent="Finding physical bursts…";await wait(0);const detection=energyRegions(recorded,sr),regions=detection.regions;set("bursts",String(regions.length));set("detector",`noise20=${detection.noise20.toFixed(5)}, median=${detection.median.toFixed(5)}, peak=${detection.peak.toFixed(5)}, threshold=${detection.threshold.toFixed(5)}`);
+const decodes=[],lines=[`Detector: noise20=${detection.noise20.toFixed(6)}, median=${detection.median.toFixed(6)}, peak=${detection.peak.toFixed(6)}, threshold=${detection.threshold.toFixed(6)}`,`Regions found: ${regions.length}`];for(let i=0;i<regions.length;i++){const r=regions[i];lines.push(`Region ${i+1}: ${(r.a/sr).toFixed(2)}–${(r.b/sr).toFixed(2)} s, peak=${r.peak.toFixed(5)}`);status.textContent=`Decoding burst ${i+1}/${regions.length}…`;await wait(0);const L=findLock(recorded,sr,r);if(!L){lines.push(`Burst ${i+1}: no lock`);continue}try{const d=decodeRaw(recorded,sr,L);decodes.push(d);const be=d.payload.length===EXPECTED.length?bitErrors(EXPECTED,d.payload):null;lines.push(`Burst ${i+1}: preamble ${d.pre}/${P.preamble.length}, VAC1-score ${d.magic}/16, header=${d.magicOk?"OK":"BAD"}, len=${d.len}, CRC=${d.crcOk?"PASS":"FAIL"}, payload=${hex(d.payload)}, bitErrors=${be??"n/a"}`)}catch(e){lines.push(`Burst ${i+1}: ${e instanceof Error?e.message:String(e)}`)}}
+if(!decodes.length){log.textContent=lines.join("\n");throw Error(`No burst produced a decodable symbol stream (regions=${regions.length})`)}
+let final=null,mode="";for(let i=0;i<decodes.length;i++){const d=decodes[i];if(d.magicOk&&d.len===EXPECTED.length&&d.crcOk&&equal(d.payload,EXPECTED)){final={payload:d.payload,crcOk:true};mode=`SINGLE BURST ${i+1}`;break}}
+if(!final&&decodes.length>=2){const c=combine(decodes);final={payload:c.payload,crcOk:c.magicOk&&c.len===EXPECTED.length&&c.crcOk};mode=`SOFT COMBINE ${decodes.length} BURSTS`;lines.push(`Combined: magic=${c.magicOk?"OK":"BAD"}, len=${c.len}, CRC=${c.crcOk?"PASS":"FAIL"}, payload=${hex(c.payload)}, bitErrors=${bitErrors(EXPECTED,c.payload)??"n/a"}`)}
+const ok=!!final&&final.crcOk&&equal(final.payload,EXPECTED);set("received",final?hex(final.payload):"—");set("match",ok?"YES":"NO",ok?"pass":"fail");set("mode",mode||"NO VALID RECOVERY",ok?"pass":"pending");set("crc",final?.crcOk?"PASS":"FAIL",final?.crcOk?"pass":"fail");set("biterrors",final?String(bitErrors(EXPECTED,final.payload)):"—",ok?"pass":"pending");status.textContent=ok?`PASS — ${mode} recovered the exact frame`:`FAIL — ${mode||"no recovery"}`;status.className=ok?"pass":"fail";log.textContent=lines.join("\n");
+}catch(e){const m=e instanceof Error?e.message:String(e);status.textContent=`FAIL — ${m}`;status.className="fail";set("match","NO","fail");if($("crc").textContent==="—")set("crc","NOT VERIFIED","pending");log.textContent+=(log.textContent?"\n\n":"")+m;}finally{try{source?.disconnect()}catch{}try{processor?.disconnect()}catch{}try{sink?.disconnect()}catch{}if(stream)for(const t of stream.getTracks())t.stop();if(ctx&&ctx.state!=="closed")await ctx.close();sendBtn.disabled=false;receiveBtn.disabled=false}}
+sendBtn.addEventListener("click",send);receiveBtn.addEventListener("click",receive);set("expected",hex(EXPECTED));
+})();
+</script>
+</body></html>
