@@ -9,7 +9,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invali
 
 const here = dirname(fileURLToPath(import.meta.url));
 const loopbackPage = join(here, "live-acoustic-test-v4.html");
-const twoComputerPage = join(here, "two-computer-acoustic-test-v3.html");
+const twoComputerPage = join(here, "two-computer-acoustic-test-v4.html");
 
 const server = createServer(async (request, response) => {
   try {
@@ -21,7 +21,8 @@ const server = createServer(async (request, response) => {
       url.pathname === "/two-computer" ||
       url.pathname === "/two-computer-acoustic-test.html" ||
       url.pathname === "/two-computer-acoustic-test-v2.html" ||
-      url.pathname === "/two-computer-acoustic-test-v3.html"
+      url.pathname === "/two-computer-acoustic-test-v3.html" ||
+      url.pathname === "/two-computer-acoustic-test-v4.html"
     ) {
       page = twoComputerPage;
     } else {
@@ -50,7 +51,7 @@ server.listen(port, host, () => {
     name: "VAML Live Acoustic Test",
     loopbackUrl: `http://${host}:${port}/`,
     twoComputerUrl: `http://${host}:${port}/two-computer`,
-    instruction: "For two computers: open /two-computer on both machines, arm Computer B first, then send the 3-burst probe from Computer A. v3 reports per-burst bit errors and soft-combines repeated bursts before CRC verification.",
+    instruction: "For two computers: arm Computer B, wait through CALIBRATING, and only send from Computer A once B says LISTENING — SEND NOW.",
   }));
 });
 
