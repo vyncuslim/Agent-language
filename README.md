@@ -53,43 +53,153 @@ The project is still **experimental**. Do not treat the current runtime as a fin
 
 ---
 
+# Cross-platform support
+
+The VAML **core runtime** is designed to run anywhere that can run **Node.js 20+** and npm.
+
+| Platform | VAML Core | Agent↔Agent TCP | Acoustic WAV | Live microphone/speaker |
+|---|---:|---:|---:|---:|
+| Windows 10/11 x64 | ✅ | ✅ | ✅ | ✅ if audio hardware/API is available |
+| Windows 11 ARM64 | ✅ | ✅ | ✅ | ✅ if Node/WebAudio/browser support is available |
+| macOS Intel | ✅ | ✅ | ✅ | ✅ |
+| macOS Apple Silicon | ✅ | ✅ | ✅ | ✅ |
+| Linux x64 | ✅ | ✅ | ✅ | ✅ if audio stack/browser support is available |
+| Linux ARM64 | ✅ | ✅ | ✅ | ✅ if audio stack/browser support is available |
+| WSL2 | ✅ | ✅ | ✅ | ⚠️ audio depends on WSL/Windows audio configuration |
+| ChromeOS Linux environment | ✅ if Node.js 20+ runs | ✅ | ✅ | ⚠️ microphone/speaker integration depends on Crostini/browser access |
+| Headless server / VM | ✅ | ✅ | ✅ file generation | ❌ unless audio devices are attached |
+| Raspberry Pi / ARM64 Linux | ✅ if Node.js 20+ runs | ✅ | ✅ | ⚠️ depends on hardware/audio drivers |
+
+VAML does **not** require a GPU.
+
+The core runtime does **not** require a microphone, speaker, browser or sound card. Those are only required for Acoustic Transport.
+
+### Architecture support
+
+Recommended:
+
+```text
+x86_64 / x64
+ARM64 / aarch64
+```
+
+Legacy 32-bit operating systems and systems that cannot run Node.js 20+ are not supported by the reference runtime.
+
+For maximum compatibility, use the latest stable Node.js 20+ or Node.js 24 runtime available for the operating system.
+
+---
+
 # Installation
 
 ## Requirements
 
+Required on every supported computer:
+
 - Node.js **20+**;
 - npm;
 - Git;
-- private VAML keys and vocabulary only when running an authorized real deployment.
+- enough storage for the repository, dependencies and any private vocabulary packs used by the deployment.
 
-Clone the repository:
+Required only for an authorized real deployment:
+
+- private VAML keys;
+- authorized encrypted vocabulary packs;
+- deployment-specific Agent configuration.
+
+Required only for live Acoustic Transport:
+
+- microphone and/or speaker;
+- an OS/browser audio API supported by the deployment;
+- microphone permission when using browser capture.
+
+Check the environment first:
+
+```sh
+node --version
+npm --version
+git --version
+```
+
+`node --version` must report Node.js 20 or newer.
+
+---
+
+## Windows 10 / Windows 11 — PowerShell
+
+Open **PowerShell** or **Windows Terminal**.
+
+If Node.js and Git are not installed, they can be installed using the normal Windows installers or a package manager such as `winget`. After installation, close and reopen the terminal and verify:
+
+```powershell
+node --version
+npm --version
+git --version
+```
+
+Clone and install VAML:
+
+```powershell
+git clone https://github.com/vyncuslim/Agent-language.git
+Set-Location Agent-language\sdk\typescript
+npm ci
+npm run build
+npm run check
+```
+
+Run individual verification commands:
+
+```powershell
+npm test
+npm run demo
+npm run demo:agents
+npm run demo:audio
+npm run privacy
+```
+
+The audio demo creates:
+
+```text
+vaml-acoustic-demo.wav
+```
+
+in the TypeScript SDK working directory.
+
+### Windows private-key environment variables
+
+For an authorized deployment, set secrets in the current PowerShell process or, preferably, inject them through a protected secret manager:
+
+```powershell
+$env:VAML_SEMANTIC_KEY="<private-32-byte-base64url-key>"
+$env:VAML_PACK_KEY="<private-32-byte-base64url-key>"
+```
+
+Do not commit these values or paste production keys into logs.
+
+---
+
+## macOS — Terminal
+
+VAML supports both Intel Macs and Apple Silicon Macs as long as Node.js 20+ is available.
+
+Verify:
+
+```sh
+node --version
+npm --version
+git --version
+```
+
+Clone and install:
 
 ```sh
 git clone https://github.com/vyncuslim/Agent-language.git
 cd Agent-language/sdk/typescript
-```
-
-Install exact dependencies:
-
-```sh
 npm ci
-```
-
-Build:
-
-```sh
 npm run build
-```
-
-Run the complete local verification chain:
-
-```sh
 npm run check
 ```
 
-`npm run check` currently performs the TypeScript build, test suite, Agent demos and privacy linting.
-
-Individual commands:
+Optional checks:
 
 ```sh
 npm test
@@ -97,10 +207,200 @@ npm run demo
 npm run demo:agents
 npm run demo:audio
 npm run privacy
-npm run benchmark
 ```
 
-`npm run demo:audio` generates a local `vaml-acoustic-demo.wav` machine-audio sample. The generated WAV is ignored by Git.
+For an authorized private deployment:
+
+```sh
+export VAML_SEMANTIC_KEY="<private-32-byte-base64url-key>"
+export VAML_PACK_KEY="<private-32-byte-base64url-key>"
+```
+
+Prefer the operating system keychain, deployment secret manager or another protected secret store instead of keeping production keys in shell history.
+
+---
+
+## Linux — Ubuntu / Debian / Fedora / Arch / other distributions
+
+The runtime is distribution-independent at the application layer. The important requirement is a working Node.js 20+ environment.
+
+Verify:
+
+```sh
+node --version
+npm --version
+git --version
+```
+
+Clone and install:
+
+```sh
+git clone https://github.com/vyncuslim/Agent-language.git
+cd Agent-language/sdk/typescript
+npm ci
+npm run build
+npm run check
+```
+
+Optional checks:
+
+```sh
+npm test
+npm run demo
+npm run demo:agents
+npm run demo:audio
+npm run privacy
+```
+
+For an authorized private deployment:
+
+```sh
+export VAML_SEMANTIC_KEY="<private-32-byte-base64url-key>"
+export VAML_PACK_KEY="<private-32-byte-base64url-key>"
+```
+
+On headless Linux servers, Agent↔Agent TCP communication works without a desktop environment. Acoustic microphone/speaker mode requires an attached audio device and a compatible audio capture/playback integration.
+
+---
+
+## WSL2
+
+WSL2 can run the Node.js VAML core and TCP Agent runtime using the same Linux commands:
+
+```sh
+git clone https://github.com/vyncuslim/Agent-language.git
+cd Agent-language/sdk/typescript
+npm ci
+npm run build
+npm run check
+```
+
+Use WSL2 for:
+
+```text
+Agent runtime
+TCP communication
+vocabulary tools
+tests
+benchmarks
+WAV generation
+```
+
+Live microphone/speaker behavior depends on the Windows + WSL audio path. If live audio is unreliable, run the browser/audio adapter directly on Windows while keeping the Agent runtime in WSL or Windows.
+
+---
+
+## ChromeOS / Chromebook
+
+Use the ChromeOS Linux development environment when it can provide Node.js 20+, npm and Git.
+
+Inside the Linux terminal:
+
+```sh
+git clone https://github.com/vyncuslim/Agent-language.git
+cd Agent-language/sdk/typescript
+npm ci
+npm run build
+npm run check
+```
+
+The VAML core can run in the Linux container. Direct microphone/speaker access from the Linux container may be limited by the ChromeOS configuration; browser-based Web Audio may be the better acoustic path.
+
+---
+
+# Quick start on any supported computer
+
+Once Node.js 20+, npm and Git are available, the common installation path is:
+
+```sh
+git clone https://github.com/vyncuslim/Agent-language.git
+cd Agent-language/sdk/typescript
+npm ci
+npm run build
+npm run check
+```
+
+Expected workflow:
+
+```text
+clone
+↓
+npm ci
+↓
+npm run build
+↓
+npm test
+↓
+Agent demos
+↓
+privacy lint
+```
+
+`npm run check` currently runs the TypeScript build, full test suite, the standard Agent demo, autonomous Agent demo and privacy lint.
+
+The acoustic WAV demo is separate:
+
+```sh
+npm run demo:audio
+```
+
+---
+
+# Use VAML from another AI Agent project
+
+The TypeScript package now exposes its compiled runtime through:
+
+```text
+@vaml/runtime
+```
+
+Build VAML first:
+
+```sh
+cd Agent-language/sdk/typescript
+npm ci
+npm run build
+```
+
+Then link it locally:
+
+```sh
+npm link
+```
+
+Move to the authorized AI Agent project and link VAML:
+
+```sh
+npm link @vaml/runtime
+```
+
+This local-link workflow works on Windows, macOS and Linux when npm is available.
+
+The Agent project should use ESM/NodeNext-compatible module settings. A minimal JavaScript/TypeScript import is:
+
+```ts
+import {
+  runAgentDialogue,
+  startAgentServer,
+  connectConversation,
+  AcousticMicrophoneReceiver,
+  encodeVamlFrameToWav,
+} from "@vaml/runtime";
+```
+
+The package entrypoint is the compiled SDK at:
+
+```text
+dist/src/index.js
+```
+
+with TypeScript declarations at:
+
+```text
+dist/src/index.d.ts
+```
+
+Do not attempt to publish the package to npm from this repository. The package remains marked `private` and is intended for local/authorized deployment integration.
 
 ---
 
@@ -186,7 +486,7 @@ const result = await runAgentDialogue(
 );
 ```
 
-Returning `null` from the Agent brain ends that Agent's side of the dialogue. The runtime now signals peer termination immediately instead of leaving the peer waiting for the idle timeout.
+Returning `null` from the Agent brain ends that Agent's side of the dialogue. The runtime signals peer termination immediately instead of leaving the peer waiting for the idle timeout.
 
 VAML does not grant tool permissions. A valid semantic frame must still pass the deployment's capability, authorization and tool-execution policy.
 
@@ -283,6 +583,65 @@ See [`spec/ACOUSTIC-TRANSPORT-0.2.md`](spec/ACOUSTIC-TRANSPORT-0.2.md).
 
 ---
 
+# Troubleshooting across computers
+
+## `node` is not recognized / command not found
+
+Node.js is missing or not in PATH. Install Node.js 20+ for the operating system, restart the terminal and verify:
+
+```sh
+node --version
+```
+
+## `npm ci` fails
+
+Check:
+
+```sh
+node --version
+npm --version
+git status
+```
+
+Use a clean clone and do not reuse a partially modified `node_modules` directory.
+
+## Build fails on an old Node.js version
+
+Upgrade to Node.js 20+ and rerun:
+
+```sh
+npm ci
+npm run build
+```
+
+## Agent TCP demo works but microphone mode does not
+
+This usually means the core runtime is working and the problem is in the audio path. Check:
+
+```text
+microphone permission
+speaker output device
+browser Web Audio support
+OS microphone privacy settings
+sample rate
+audio driver
+room/noise conditions
+```
+
+## Headless server has no sound device
+
+This is not a VAML core failure. Use TCP/approved byte transport. Acoustic Transport is optional.
+
+## ARM64 device is slow
+
+The runtime can operate on ARM64 when Node.js 20+ is available, but large private vocabulary builds and benchmarks may require more RAM/CPU than smaller ARM devices provide.
+
+For unresolved installation or compatibility issues contact:
+
+**admin@sleepsomno.com**
+
+---
+
 # Private vocabulary and keys
 
 Production semantic data does not belong in this public repository.
@@ -321,12 +680,20 @@ npm run pack:world -- /private/input.world.sorted.jsonl /private/packs 1
 npm run corpus-pack -- /private/sources.json /private/corpus.sorted.jsonl /private/packs 1
 ```
 
-For the verified large-corpus runner:
+For the verified large-corpus runner on macOS/Linux/WSL:
 
 ```sh
-VAML_SEMANTIC_KEY=<private-key-from-secret-manager> \
-VAML_PACK_KEY=<private-key-from-secret-manager> \
+export VAML_SEMANTIC_KEY="<private-key-from-secret-manager>"
+export VAML_PACK_KEY="<private-key-from-secret-manager>"
 npm run private-corpus-run -- /secure/vaml/build-plan.json
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:VAML_SEMANTIC_KEY="<private-key-from-secret-manager>"
+$env:VAML_PACK_KEY="<private-key-from-secret-manager>"
+npm run private-corpus-run -- "C:\secure\vaml\build-plan.json"
 ```
 
 The build plan, snapshots, alignment material, temporary plaintext corpus and production vocabulary output should remain outside the public repository.
@@ -387,7 +754,7 @@ See [`docs/SECURITY.md`](docs/SECURITY.md).
 
 # Support / installation / authorization
 
-For installation help, authorized Agent deployment, VAML integration, security reports, official Translator access or deployment-policy questions, contact:
+For installation help, cross-platform compatibility, authorized Agent deployment, VAML integration, security reports, official Translator access or deployment-policy questions, contact:
 
 **admin@sleepsomno.com**
 
