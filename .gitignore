@@ -31,6 +31,9 @@ private-build/
 *.private.json
 *.private.csv
 *.private.vaml
+*.omw.ingest.json
+*.omw.ingest.jsonl
+*.omw.tsv
 .build-*/
 *.vocab.key
 *.semantic.key

@@ -6,6 +6,7 @@ export * from "./world-lexicon.js";
 export * from "./corpus.js";
 export * from "./source-adapter.js";
 export * from "./source-pack-1.js";
+export * from "./omw.js";
 export * from "./private-corpus-runner.js";
 export * from "./learning.js";
 export * from "./adaptive-memory.js";

@@ -39,6 +39,7 @@
     "privacy": "tsx tools/privacy-lint.ts ../..",
     "world-pack": "tsx tools/build-world-lexicon.ts",
     "corpus-pack": "tsx tools/build-world-semantic-corpus.ts",
+    "corpus:omw": "tsx tools/build-omw-corpus.ts",
     "private-corpus-run": "tsx tools/run-private-corpus-build.ts"
   },
   "dependencies": {

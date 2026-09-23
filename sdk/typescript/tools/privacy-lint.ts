@@ -39,6 +39,8 @@ const forbiddenFilePatterns: RegExp[] = [
   /\.vocab$/i,
   /\.compiled\.vaml$/i,
   /\.private\.(?:json|csv|vaml)$/i,
+  /\.omw\.ingest\.jsonl?$/i,
+  /\.omw\.tsv$/i,
   /\.vocab\.key$/i,
   /\.semantic\.key$/i,
   /\.session\.key$/i,

@@ -678,6 +678,7 @@ Example private build commands:
 npm run pack -- /private/input.jsonl /private/packs
 npm run pack:world -- /private/input.world.sorted.jsonl /private/packs 1
 npm run corpus-pack -- /private/sources.json /private/corpus.sorted.jsonl /private/packs 1
+npm run corpus:omw -- --input /secure/omw.tab --out /secure/omw.omw.ingest.json --source-version "OMW release" --license "source license" --provenance "acquisition record"
 ```
 
 For the verified large-corpus runner on macOS/Linux/WSL:
@@ -747,6 +748,7 @@ See [`docs/SECURITY.md`](docs/SECURITY.md).
 - [`spec/AGENT-BRIDGE-0.1.md`](spec/AGENT-BRIDGE-0.1.md) — autonomous AI Agent bridge
 - [`spec/ACOUSTIC-TRANSPORT-0.2.md`](spec/ACOUSTIC-TRANSPORT-0.2.md) — speaker/microphone transport
 - [`spec/PRIVATE-CORPUS-RUNNER-0.1.md`](spec/PRIVATE-CORPUS-RUNNER-0.1.md) — private corpus build runner
+- [`spec/OMW-ADAPTER-0.1.md`](spec/OMW-ADAPTER-0.1.md) — private Open Multilingual Wordnet adapter
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — performance evidence
 - [`docs/CI-STATUS.md`](docs/CI-STATUS.md) — CI status/limitations
 
