@@ -680,6 +680,25 @@ See [`spec/TEXT-TRANSPORT-0.1.md`](spec/TEXT-TRANSPORT-0.1.md).
 
 ---
 
+# LAN test chat
+
+For multi-machine testing on a local network, one file serves a chat room
+with zero dependencies (plain Node 20+, SSE + fetch, no database):
+
+```sh
+cd sdk/typescript
+npm run chat:lan -- 8787
+```
+
+It prints URLs like `http://192.168.1.10:8787` — everyone on the LAN opens
+one in a browser. Messages stay in server memory only (last 200), with
+per-IP rate limiting and message size caps.
+
+Testing only: no encryption, no persistence, no authentication. Do not send
+sensitive content. Source: `sdk/typescript/tools/lan-chat-server.mjs`.
+
+---
+
 # Troubleshooting across computers
 
 ## `node` is not recognized / command not found

@@ -31,6 +31,7 @@
     "demo:chat": "node dist/examples/chat-learning-demo.js",
     "demo:audio": "node dist/examples/acoustic-frame-demo.js",
     "demo:text": "node dist/examples/text-transport-demo.js",
+    "chat:lan": "node tools/lan-chat-server.mjs",
     "test:audio:live": "tsx tools/live-acoustic-test-server.ts",
     "vaml": "node dist/src/cli.js",
     "pack": "tsx tools/build-private-lexicon.ts",
