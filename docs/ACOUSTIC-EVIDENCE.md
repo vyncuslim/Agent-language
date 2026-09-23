@@ -96,34 +96,55 @@ evidence WAV.
 
 ## Channel calibration + carrier equalization
 
+### v2 (formal path): 26 ms symbol-domain closed loop
+
 Real rooms are not flat: one deployment showed ~51% of preamble energy on
 1600 Hz but only ~12% on 1200 Hz, with systematic 2000 Hz → 800 Hz confusion
 (`VAC1` byte `0x43` recovered as `0x40`). CRC rules and the `VERIFIED PASS`
 definition are unchanged — calibration only levels the playing field.
 
-Flow (`tools/two-computer-acoustic-evidence.html`):
+Long-tone gains do not transfer to 26 ms symbols (ramps, guard/window, ISI,
+AGC attack), so v2 calibrates **in the symbol domain through the same
+`encodeAcousticSymbols` generator as the probe** (`[0,1,2,3]` × 40 rounds):
 
 ```text
-B: Arm Calibration Receiver → CALIBRATION LISTENING
-A: Send Calibration (800/1200/1600/2000 Hz, 750 ms tones, 350 ms silence)
-B: measures gains/SNR/offsets → CALIBRATION PASS / DEGRADED → save JSON
-A: load vaml-acoustic-calibration.json (file input)
-B: Arm Evidence Receiver → LISTENING — SEND NOW
-A: Send Calibrated Evidence Probe (per-carrier TX amplitudes)
-B: save the RAW microphone WAV (never a processed signal)
+Round 1 (uniform TX) → measure g_s + confusion matrix → derive TX
+Round 2 (compensated TX) → MEASURE effectiveRxGains e_s (never g_s x t_s^2)
+Probe: TX uses t_s, RX uses only measured e_s
 ```
 
-Measurement is narrow-band Goertzel only (broadband RMS never judges
-carriers). Gains normalize to the median carrier. TX compensation is
-`1/sqrt(powerGain)` clamped to `[0.25, 4.0]` (±12 dB) with a `0.9` peak
-ceiling so equalization never clips. RX decisions use
-`measuredPower[f] / channelGain[f]` with raw powers preserved in the report.
-Offsets shift the Goertzel centers; the bounded ±45 Hz search stays.
-
-Analyze with calibration:
+Hard rules: ground-truth symbols never influence winners (statistics only;
+`winner`/`rawPowers`/`normalizedPowers` all preserved); v2 JSON requires
+`round1Sha256` + `round2Sha256` (loader REJECTS without them); TX is
+`1/sqrt(gain)` clamped `[0.25, 4]` with `0.9` peak ceiling.
 
 ```bash
-npm run acoustic:evidence -- capture.wav --calibration vaml-acoustic-calibration.json
+npm run acoustic:evidence -- capture.wav --calibration vaml-acoustic-calibration-v2.json
+```
+
+A `--calibration` file must be v2; v1 files are rejected (legacy
+diagnostic only). The report prints the calibration source
+(`v2 closed-loop (MEASURED ROUND 2)` plus both SHAs) so the gains used are
+always auditable.
+
+### v1 (legacy diagnostic): 750 ms tones
+
+Retained with all its tests, but superseded: steady-state tone gains plus
+re-applied long-tone RX normalization is double correction. v2 browser flow
+(`tools/two-computer-acoustic-evidence.html`):
+
+```text
+B: Arm Symbol Cal Round 1 → A: Send Round 1 → B saves Round-1 WAV + profile
+A: load Round 1 profile → B: Arm Round 2 → A: Send Compensated Round 2
+B: saves Round-2 WAV + v2 JSON → A: load v2 → B: Arm Evidence
+A: Send Calibrated Probe → B: saves RAW evidence WAV
+```
+
+Page DSP mirrors `src/acoustic-calibration.ts`; cross-check it after edits:
+
+```bash
+npm run build
+node dist/tools/xcheck-page-cal.js
 ```
 
 The calibration JSON contains channel physics only — no keys or secrets.

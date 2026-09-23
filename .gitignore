@@ -51,6 +51,8 @@ vaml-two-computer-evidence-*.wav
 acoustic-evidence-capture-*.wav
 synthetic-evidence-demo.wav
 vaml-acoustic-calibration-capture-*.wav
+vaml-symbol-cal-round1-*.wav
+vaml-symbol-cal-round2-*.wav
 
 # TypeScript / Node
 node_modules/

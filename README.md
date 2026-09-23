@@ -590,9 +590,10 @@ npm run acoustic:evidence -- vaml-two-computer-evidence-48000hz.wav
 
 See [`docs/ACOUSTIC-EVIDENCE.md`](docs/ACOUSTIC-EVIDENCE.md). A physical run
 counts as verified only on `CRC PASS + BYTE EXACT MATCH`. For rooms with
-uneven speaker/microphone response, run the calibration flow first
-(`--calibration vaml-acoustic-calibration.json`); CRC and verdict rules stay
-unchanged.
+uneven speaker/microphone response, run the two-round 26 ms symbol
+calibration first (`--calibration vaml-acoustic-calibration-v2.json`); CRC
+and verdict rules stay unchanged. The 750 ms long-tone calibration remains
+only as a legacy diagnostic.
 
 ---
 

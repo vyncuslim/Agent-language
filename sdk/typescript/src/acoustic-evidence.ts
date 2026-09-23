@@ -61,6 +61,17 @@ export function expectedPacketSymbols(): number[] {
 export interface EvidenceEqualization {
   frequenciesHz: readonly [number, number, number, number];
   rxGains: readonly [number, number, number, number];
+  /**
+   * Where the gains came from. v2-measured = Round-2 recording (formal
+   * path); v1-legacy = long-tone diagnostic (never the formal path).
+   * Absent means the caller did not declare provenance.
+   */
+  provenance?: {
+    kind: "v1-legacy" | "v2-measured";
+    source: string;
+    round1Sha256?: string;
+    round2Sha256?: string;
+  };
 }
 
 function eqCenter(eq: EvidenceEqualization | undefined, carrier: number): number {
@@ -424,8 +435,11 @@ export interface EvidenceReport {
   equalization: {
     applied: boolean;
     source: string;
+    kind: "v1-legacy" | "v2-measured" | "undeclared";
     centersHz: number[];
     rxGains: number[];
+    round1Sha256?: string;
+    round2Sha256?: string;
   } | null;
   bursts: BurstReport[];
   combined: CombinedReport | null;
@@ -621,6 +635,64 @@ function analyzeCarriers(preambleSymbols: SymbolAnalysis[], samples: Float64Arra
   });
 }
 
+/**
+ * Decode a known symbol sequence with the receiver's own pipeline.
+ *
+ * R3 hard requirement: the ground-truth `expectedSymbols` are attached
+ * AFTER each decision for statistics only. The winner comes exclusively
+ * from the same bounded-search argmax used for evidence packets — expected
+ * symbols never change, retry, bias, or re-center a decision.
+ */
+export interface KnownSymbolDecision {
+  index: number;
+  expected: number;
+  winner: number;
+  /** Receiver sample offset chosen by the bounded timing search. */
+  start: number;
+  rawPowers: [number, number, number, number];
+  normalizedPowers: [number, number, number, number];
+  confidence: number;
+  winnerFrequency: number;
+  expectedFrequency: number;
+}
+
+export function decodeKnownSymbols(
+  samples: Float64Array,
+  sampleRate: number,
+  startSample: number,
+  samplesPerSymbol: number,
+  expectedSymbols: readonly number[],
+  eq?: EvidenceEqualization,
+): KnownSymbolDecision[] {
+  if (!(samples instanceof Float64Array) || samples.length === 0) throw new Error("Invalid evidence samples");
+  if (!Number.isFinite(startSample) || !Number.isFinite(samplesPerSymbol) || samplesPerSymbol <= 0) {
+    throw new Error("Invalid symbol timing");
+  }
+  if (eq !== undefined) validateEqualization(eq, sampleRate);
+  const search = Math.max(4, Math.round(samplesPerSymbol * 0.02));
+  const out: KnownSymbolDecision[] = [];
+  let cursor = startSample;
+  for (let i = 0; i < expectedSymbols.length; i++) {
+    const expected = expectedSymbols[i];
+    if (!Number.isInteger(expected) || expected < 0 || expected > 3) throw new Error("Invalid expected symbol");
+    const d = decideFine(samples, cursor, samplesPerSymbol, sampleRate, search, eq);
+    if (!d) throw new Error("Truncated symbol stream");
+    out.push({
+      index: i,
+      expected,
+      winner: d.symbol,
+      start: d.start,
+      rawPowers: [...d.powers] as [number, number, number, number],
+      normalizedPowers: [...d.normalizedPowers] as [number, number, number, number],
+      confidence: d.quality,
+      winnerFrequency: EVIDENCE_FREQUENCIES[d.symbol],
+      expectedFrequency: EVIDENCE_FREQUENCIES[expected],
+    });
+    cursor = d.start + samplesPerSymbol;
+  }
+  return out;
+}
+
 /** Least-squares slope of detected starts vs symbol index (samples/symbol). */
 function fitSamplesPerSymbol(x: number[], y: number[], fallback: number): number {
   const n = x.length;
@@ -638,61 +710,39 @@ function fitSamplesPerSymbol(x: number[], y: number[], fallback: number): number
 
 function decodeBurst(samples: Float64Array, sampleRate: number, candidate: RefinedCandidate, burstIndex: number, eq?: EvidenceEqualization): BurstReport {
   const nominal = (sampleRate * EVIDENCE_SYMBOL_MS) / 1000;
-  const search = Math.max(4, Math.round(candidate.samplesPerSymbol * 0.02));
-  const preamble: SymbolAnalysis[] = [];
-  // Detected symbol starts for the least-squares clock fit. Each detection
-  // re-centers inside its bounded window, so the fitted slope tracks the true
-  // symbol rate even when the grid lock sps is coarse.
-  const fitX: number[] = [];
-  const fitY: number[] = [];
-  let cursor = candidate.start;
-  for (let i = 0; i < EVIDENCE_PREAMBLE.length; i++) {
-    const d = decideFine(samples, cursor, candidate.samplesPerSymbol, sampleRate, search, eq);
-    if (!d) throw new Error("Truncated preamble symbol stream");
-    const sorted = [...d.powers].sort((a, b) => b - a);
+  // Single shared pipeline: preamble + packet both decode through
+  // decodeKnownSymbols (same bounded-search argmax as calibration rounds).
+  // Cursor chaining is preserved exactly: each packet symbol continues from
+  // the previous decision (d.start + sps).
+  const toAnalysis = (d: KnownSymbolDecision, index: number): SymbolAnalysis => {
+    const sorted = [...d.rawPowers].sort((a, b) => b - a);
     const winner = sorted[0];
     const second = sorted[1] ?? 0;
-    preamble.push({
-      index: i,
-      expected: EVIDENCE_PREAMBLE[i],
-      decoded: d.symbol,
-      confidence: d.quality,
+    return {
+      index,
+      expected: d.expected,
+      decoded: d.winner,
+      confidence: d.confidence,
       winnerPower: winner,
       secondPower: Math.max(0, second),
       margin: winner > 0 ? Math.max(0, (winner - Math.max(0, second)) / winner) : 0,
-      winnerFrequency: EVIDENCE_FREQUENCIES[d.symbol],
-      expectedFrequency: EVIDENCE_FREQUENCIES[EVIDENCE_PREAMBLE[i]],
-    });
-    fitX.push(i);
-    fitY.push(d.start);
-    cursor = d.start + candidate.samplesPerSymbol;
-  }
+      winnerFrequency: d.winnerFrequency,
+      expectedFrequency: d.expectedFrequency,
+    };
+  };
+  const preDecisions = decodeKnownSymbols(samples, sampleRate, candidate.start, candidate.samplesPerSymbol, EVIDENCE_PREAMBLE, eq);
+  const preamble = preDecisions.map((d, i) => toAnalysis(d, i));
   const preambleMatches = preamble.filter((s) => s.expected === s.decoded).length;
 
-  const packetSymbols: SymbolAnalysis[] = [];
-  const decodedSymbols: number[] = [];
-  for (let i = 0; i < EXPECTED_PACKET_SYMBOLS.length; i++) {
-    const d = decideFine(samples, cursor, candidate.samplesPerSymbol, sampleRate, search, eq);
-    if (!d) throw new Error("Truncated packet symbol stream");
-    const sorted = [...d.powers].sort((a, b) => b - a);
-    const winner = sorted[0];
-    const second = sorted[1] ?? 0;
-    packetSymbols.push({
-      index: EVIDENCE_PREAMBLE.length + i,
-      expected: EXPECTED_PACKET_SYMBOLS[i],
-      decoded: d.symbol,
-      confidence: d.quality,
-      winnerPower: winner,
-      secondPower: Math.max(0, second),
-      margin: winner > 0 ? Math.max(0, (winner - Math.max(0, second)) / winner) : 0,
-      winnerFrequency: EVIDENCE_FREQUENCIES[d.symbol],
-      expectedFrequency: EVIDENCE_FREQUENCIES[EXPECTED_PACKET_SYMBOLS[i]],
-    });
-    decodedSymbols.push(d.symbol);
-    fitX.push(EVIDENCE_PREAMBLE.length + i);
-    fitY.push(d.start);
-    cursor = d.start + candidate.samplesPerSymbol;
-  }
+  const packetStart = preDecisions.length
+    ? preDecisions[preDecisions.length - 1].start + candidate.samplesPerSymbol
+    : candidate.start;
+  const packetDecisions = decodeKnownSymbols(samples, sampleRate, packetStart, candidate.samplesPerSymbol, EXPECTED_PACKET_SYMBOLS, eq);
+  const packetSymbols = packetDecisions.map((d, i) => toAnalysis(d, EVIDENCE_PREAMBLE.length + i));
+  const decodedSymbols = packetDecisions.map((d) => d.winner);
+  const cursor = packetDecisions.length
+    ? packetDecisions[packetDecisions.length - 1].start + candidate.samplesPerSymbol
+    : packetStart;
 
   const raw = symbolsToBytes(decodedSymbols);
   const rawHeader = raw.length >= 8 ? raw.subarray(0, 8) : raw;
@@ -726,6 +776,8 @@ function decodeBurst(samples: Float64Array, sampleRate: number, candidate: Refin
   // per-symbol detection re-centers inside its bounded window (no random
   // walk), so the fitted slope tracks the true symbol rate over all 112
   // symbols instead of inheriting grid quantization or cursor-walk noise.
+  const fitX = [...preDecisions.map((d) => d.index), ...packetDecisions.map((d) => EVIDENCE_PREAMBLE.length + d.index)];
+  const fitY = [...preDecisions.map((d) => d.start), ...packetDecisions.map((d) => d.start)];
   const measuredSps = fitSamplesPerSymbol(fitX, fitY, candidate.samplesPerSymbol);
   const driftPpm = (measuredSps / nominal - 1) * 1_000_000;
   return {
@@ -783,8 +835,11 @@ export function analyzeEvidenceSamples(
     ? {
       applied: true as const,
       source: eqSource,
+      kind: (eq.provenance?.kind ?? "undeclared") as "v1-legacy" | "v2-measured" | "undeclared",
       centersHz: [0, 1, 2, 3].map((s) => eqCenter(eq, s)),
       rxGains: [0, 1, 2, 3].map((s) => eqGain(eq, s)),
+      ...(eq.provenance?.round1Sha256 ? { round1Sha256: eq.provenance.round1Sha256 } : {}),
+      ...(eq.provenance?.round2Sha256 ? { round2Sha256: eq.provenance.round2Sha256 } : {}),
     }
     : null;
   const profile = {
@@ -938,8 +993,11 @@ export function analyzeEvidenceWav(wav: Uint8Array, eq?: EvidenceEqualization, e
         ? {
           applied: true as const,
           source: eqSource,
+          kind: (eq.provenance?.kind ?? "undeclared") as "v1-legacy" | "v2-measured" | "undeclared",
           centersHz: [0, 1, 2, 3].map((s) => eqCenter(eq, s)),
           rxGains: [0, 1, 2, 3].map((s) => eqGain(eq, s)),
+          ...(eq.provenance?.round1Sha256 ? { round1Sha256: eq.provenance.round1Sha256 } : {}),
+          ...(eq.provenance?.round2Sha256 ? { round2Sha256: eq.provenance.round2Sha256 } : {}),
         }
         : null,
       bursts: [],
@@ -963,9 +1021,16 @@ export function formatEvidenceReport(report: EvidenceReport): string {
   lines.push(`Expected payload: ${report.expectedPayloadHex}`);
   if (report.equalization?.applied) {
     const e = report.equalization;
-    lines.push(`Equalization: source ${e.source}`);
+    const kindLabel = e.kind === "v2-measured"
+      ? "v2 closed-loop (MEASURED ROUND 2)"
+      : e.kind === "v1-legacy"
+        ? "v1 LEGACY DIAGNOSTIC (not the formal path)"
+        : "undeclared provenance";
+    lines.push(`Equalization: source ${e.source} [${kindLabel}]`);
     lines.push(`  Centers: ${e.centersHz.map((f) => `${f.toFixed(0)} Hz`).join(" / ")}`);
     lines.push(`  RX gains: ${e.rxGains.map((g) => g.toFixed(3)).join(" / ")}`);
+    if (e.round1Sha256) lines.push(`  Round1 SHA256: ${e.round1Sha256}`);
+    if (e.round2Sha256) lines.push(`  Round2 SHA256: ${e.round2Sha256}`);
   }
   lines.push(`Bursts detected: ${report.bursts.length}`);
   lines.push("");
