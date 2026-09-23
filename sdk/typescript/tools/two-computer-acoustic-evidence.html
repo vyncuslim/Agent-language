@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VAML Two-Computer Acoustic Evidence Capture</title>
+<style>
+:root{color-scheme:dark;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{margin:0;background:#0b0f14;color:#e6edf3}main{max-width:1000px;margin:auto;padding:32px 20px 60px}p{color:#aab6c3;line-height:1.6}.notice{border:1px solid #31506f;background:#0d1b2a;padding:14px;border-radius:10px}.actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:18px 0}button,a.button{padding:12px 18px;border:0;border-radius:9px;font-weight:700;cursor:pointer;background:#e6edf3;color:#0b0f14;text-decoration:none}button:disabled{opacity:.5}.pending{color:#d29922;font-weight:700}.pass{color:#3fb950;font-weight:700}.fail{color:#f85149;font-weight:700}.grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #27303a;border-radius:10px;overflow:hidden}.grid div{padding:11px 12px;border-bottom:1px solid #27303a}.label{background:#111820;color:#93a4b6}.value{overflow-wrap:anywhere}pre{white-space:pre-wrap;border:1px solid #27303a;background:#111820;padding:12px;border-radius:10px;color:#aab6c3}
+</style>
+</head>
+<body><main>
+<h1>VAML Two-Computer Acoustic Evidence Capture</h1>
+<p>This mode records the raw physical microphone signal on Computer B while Computer A sends the fixed three-burst VAML probe. It deliberately keeps the raw PCM evidence so the channel can be analyzed independently of the browser decoder.</p>
+<div class="notice"><strong>Order:</strong> On Computer B click <strong>Arm Evidence Receiver</strong>. Wait until it says <strong>LISTENING — SEND NOW</strong>. Then on Computer A click <strong>Send Evidence Probe</strong>. Do not send during calibration. Keep the machines 10–30 cm apart for this evidence run and keep the sender volume unchanged from the previous test.</div>
+<div class="actions"><button id="receive">Computer B — Arm Evidence Receiver</button><button id="send">Computer A — Send Evidence Probe</button><a id="download" class="button" hidden>Save raw capture WAV</a><span id="status" class="pending">Ready</span></div>
+<div class="grid">
+<div class="label">ROLE</div><div class="value" id="role">—</div>
+<div class="label">PROBE FRAME</div><div class="value" id="frame">—</div>
+<div class="label">PROFILE</div><div class="value">26 ms symbols · 800/1200/1600/2000 Hz · 32-symbol preamble · 3 bursts</div>
+<div class="label">AUDIO SAMPLE RATE</div><div class="value" id="rate">—</div>
+<div class="label">MIC DSP</div><div class="value" id="dsp">—</div>
+<div class="label">CAPTURED SAMPLES</div><div class="value" id="samples">—</div>
+<div class="label">CAPTURE DURATION</div><div class="value" id="duration">—</div>
+<div class="label">WAV SHA-256</div><div class="value" id="sha">—</div>
+</div>
+<h2>Evidence log</h2><pre id="log">No evidence capture yet.</pre>
+<script>
+(()=>{"use strict";
+const P={symbolMs:26,frequencies:[800,1200,1600,2000],amplitude:.72,preamble:[0,3,1,2,0,3,1,2,3,0,2,1,3,0,2,1,0,2,3,1,0,2,3,1,2,0,1,3,2,0,1,3]};
+const MAGIC=[86,65,67,49],EXPECTED=Uint8Array.from([0xa3,0x4f,0x91,0x2c,0x77,0x0d,0xe8,0x51]);
+const REPETITIONS=3,GAP_MS=650,CALIBRATION_MS=1200,CAPTURE_SECONDS=16;
+const $=id=>document.getElementById(id),receiveBtn=$("receive"),sendBtn=$("send"),download=$("download"),status=$("status"),log=$("log");
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const hex=b=>Array.from(b,x=>x.toString(16).padStart(2,"0")).join("");
+function set(id,text){$(id).textContent=text}
+function w32(t,o,v){t[o]=(v>>>24)&255;t[o+1]=(v>>>16)&255;t[o+2]=(v>>>8)&255;t[o+3]=v&255}
+function crc32(data){let c=0xffffffff;for(const b of data){c^=b;for(let i=0;i<8;i++)c=(c>>>1)^(0xedb88320&-(c&1))}return(c^0xffffffff)>>>0}
+function b2s(data){const o=[];for(const b of data)o.push((b>>>6)&3,(b>>>4)&3,(b>>>2)&3,b&3);return o}
+function packet(frame){const p=new Uint8Array(12+frame.length);p.set(MAGIC);w32(p,4,frame.length);p.set(frame,8);w32(p,8+frame.length,crc32(p.subarray(0,8+frame.length)));return p}
+function encode(frame,sr){const symbols=[...P.preamble,...b2s(packet(frame))],sps=Math.round(sr*P.symbolMs/1000),lead=Math.round(sr*.25),tail=Math.round(sr*.25),pcm=new Float32Array(lead+symbols.length*sps+tail),ramp=Math.max(1,Math.min(Math.floor(sps/10),64));let cur=lead,phase=0;for(const sym of symbols){const step=2*Math.PI*P.frequencies[sym]/sr;for(let i=0;i<sps;i++){const edge=Math.min(1,i/ramp,(sps-1-i)/ramp);pcm[cur++]=Math.sin(phase)*P.amplitude*Math.max(0,edge);phase+=step;if(phase>Math.PI*2)phase-=Math.PI*2}}return pcm}
+function wavFromFloat32(samples,sr){const bytes=44+samples.length*2,b=new ArrayBuffer(bytes),v=new DataView(b),u=new Uint8Array(b);const s=(o,x)=>{for(let i=0;i<x.length;i++)u[o+i]=x.charCodeAt(i)};s(0,"RIFF");v.setUint32(4,36+samples.length*2,true);s(8,"WAVE");s(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);s(36,"data");v.setUint32(40,samples.length*2,true);let peak=0;for(const x of samples)peak=Math.max(peak,Math.abs(x));const gain=peak>1?1/peak:1;for(let i=0;i<samples.length;i++){const x=Math.max(-1,Math.min(1,samples[i]*gain));v.setInt16(44+i*2,Math.round(x*(x<0?32768:32767)),true)}return b}
+async function sha256(buf){const h=new Uint8Array(await crypto.subtle.digest("SHA-256",buf));return hex(h)}
+async function send(){receiveBtn.disabled=true;sendBtn.disabled=true;set("role","Computer A — Sender");set("frame",hex(EXPECTED));status.textContent="Preparing speaker…";status.className="pending";let ctx=null;try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error("WebAudio unavailable");ctx=new AC();if(ctx.state==="suspended")await ctx.resume();set("rate",`${ctx.sampleRate} Hz`);const pcm=encode(EXPECTED,ctx.sampleRate);for(let i=1;i<=REPETITIONS;i++){status.textContent=`SENDING burst ${i}/${REPETITIONS}`;const ab=ctx.createBuffer(1,pcm.length,ctx.sampleRate);ab.copyToChannel(pcm,0);const src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);await new Promise((res,rej)=>{src.onended=res;try{src.start()}catch(e){rej(e)}});if(i<REPETITIONS)await wait(GAP_MS)}status.textContent="SENT — raw evidence is being captured on Computer B";status.className="pass";log.textContent=`Sent ${REPETITIONS} fixed bursts\nFrame ${hex(EXPECTED)}\nPer-burst PCM duration ${(pcm.length/ctx.sampleRate).toFixed(3)} s\nGap ${GAP_MS} ms`;}catch(e){status.textContent=`FAIL — ${e instanceof Error?e.message:String(e)}`;status.className="fail"}finally{if(ctx&&ctx.state!=="closed")await ctx.close();receiveBtn.disabled=false;sendBtn.disabled=false}}
+async function receive(){receiveBtn.disabled=true;sendBtn.disabled=true;download.hidden=true;set("role","Computer B — Evidence Receiver");set("frame",hex(EXPECTED));set("sha","—");status.textContent="Requesting microphone…";status.className="pending";let stream=null,ctx=null,source=null,processor=null,sink=null;try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});const track=stream.getAudioTracks()[0],settings=track?.getSettings?track.getSettings():{};set("dsp",`echo=${settings.echoCancellation??"n/a"}, noise=${settings.noiseSuppression??"n/a"}, agc=${settings.autoGainControl??"n/a"}`);const AC=window.AudioContext||window.webkitAudioContext;ctx=new AC();if(ctx.state==="suspended")await ctx.resume();const sr=ctx.sampleRate;set("rate",`${sr} Hz`);const chunks=[];source=ctx.createMediaStreamSource(stream);processor=ctx.createScriptProcessor(2048,1,1);sink=ctx.createGain();sink.gain.value=0;processor.onaudioprocess=e=>chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));source.connect(processor);processor.connect(sink);sink.connect(ctx.destination);status.textContent="CALIBRATING — DO NOT SEND";log.textContent="Quiet calibration in progress. Do not send yet.";await wait(CALIBRATION_MS);const calibrationSamples=chunks.reduce((s,c)=>s+c.length,0);status.textContent="LISTENING — SEND NOW from Computer A";for(let i=CAPTURE_SECONDS;i>0;i--){log.textContent=`Raw evidence recording active.\nCalibration samples: ${calibrationSamples}\nCapture ends in ${i} s.`;await wait(1000)}processor.onaudioprocess=null;const total=chunks.reduce((s,c)=>s+c.length,0),recorded=new Float32Array(total);let o=0;for(const c of chunks){recorded.set(c,o);o+=c.length}set("samples",String(recorded.length));set("duration",`${(recorded.length/sr).toFixed(3)} s`);const wav=wavFromFloat32(recorded,sr),digest=await sha256(wav);set("sha",digest);const blob=new Blob([wav],{type:"audio/wav"}),url=URL.createObjectURL(blob);download.href=url;download.download=`vaml-two-computer-evidence-${sr}hz.wav`;download.hidden=false;status.textContent="EVIDENCE CAPTURE COMPLETE — save the WAV";status.className="pass";log.textContent=`Raw capture preserved.\nSample rate: ${sr}\nSamples: ${recorded.length}\nDuration: ${(recorded.length/sr).toFixed(3)} s\nCalibration samples: ${calibrationSamples}\nSHA-256: ${digest}\n\nSave the WAV without editing it.`;}catch(e){status.textContent=`FAIL — ${e instanceof Error?e.message:String(e)}`;status.className="fail"}finally{try{source?.disconnect()}catch{}try{processor?.disconnect()}catch{}try{sink?.disconnect()}catch{}if(stream)for(const t of stream.getTracks())t.stop();if(ctx&&ctx.state!=="closed")await ctx.close();receiveBtn.disabled=false;sendBtn.disabled=false}}
+receiveBtn.addEventListener("click",receive);sendBtn.addEventListener("click",send);set("frame",hex(EXPECTED));
+})();
+</script>
+</body></html>
