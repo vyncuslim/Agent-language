@@ -692,10 +692,44 @@ npm run chat:lan -- 8787
 
 It prints URLs like `http://192.168.1.10:8787` — everyone on the LAN opens
 one in a browser. Messages stay in server memory only (last 200), with
-per-IP rate limiting and message size caps.
+per-IP rate limiting and message size caps. Lines shaped like
+`VAMLTXT1.…` render with a "VAML frame" badge and a client-side armor
+check (byte count + CRC).
 
 Testing only: no encryption, no persistence, no authentication. Do not send
 sensitive content. Source: `sdk/typescript/tools/lan-chat-server.mjs`.
+
+## Chatting over VAML text transport in the room
+
+To send messages that only the paired peer can read, pair two computers
+once (5 pasted lines), then chat with `VAMLTXT1` lines. Test keys only —
+distribute the bundle once and never reuse it for anything real:
+
+```sh
+cd sdk/typescript
+npm run build # vaml-text-chat.mjs imports ../dist/src/index.js
+
+# A (repeat --dir .vaml-A on every command; B uses --dir .vaml-B):
+node tools/vaml-text-chat.mjs --dir .vaml-A init --id A
+# → prints VAMLBUNDLE line, paste it to B, then on B:
+node tools/vaml-text-chat.mjs --dir .vaml-B init --id B --bundle 'VAMLBUNDLE…'
+# Exchange hellos through the room (both sides run pair-start):
+node tools/vaml-text-chat.mjs --dir .vaml-A pair-start   # → paste VAMLHELLO to room
+node tools/vaml-text-chat.mjs --dir .vaml-B pair-start   # → paste VAMLHELLO to room
+node tools/vaml-text-chat.mjs --dir .vaml-A pair-finish 'VAMLHELLO…'  # → paste VAMLCONFIRM
+node tools/vaml-text-chat.mjs --dir .vaml-B pair-finish 'VAMLHELLO…'  # → paste VAMLCONFIRM
+node tools/vaml-text-chat.mjs --dir .vaml-A pair-confirm 'VAMLCONFIRM…'
+node tools/vaml-text-chat.mjs --dir .vaml-B pair-confirm 'VAMLCONFIRM…'
+# Chat (paste the printed lines into the room, recv the peer's lines):
+node tools/vaml-text-chat.mjs --dir .vaml-A send "你好"
+node tools/vaml-text-chat.mjs --dir .vaml-B recv 'VAMLTXT1…'
+```
+
+Every chat line is session AEAD: armor CRC rejects typos at decode, and
+`open()` rejects anything not sealed by the peer session (sequences persist
+across restarts, so replays stay rejected). Tool:
+`sdk/typescript/tools/vaml-text-chat.mjs`; state stays in `.vaml-text-chat/`
+(never commit it).
 
 ---
 

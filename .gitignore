@@ -54,6 +54,11 @@ vaml-acoustic-calibration-capture-*.wav
 vaml-symbol-cal-round1-*.wav
 vaml-symbol-cal-round2-*.wav
 
+# VAML text-chat session state (test keys — never commit)
+.vaml-text-chat/
+.vaml-A/
+.vaml-B/
+
 # TypeScript / Node
 node_modules/
 dist/

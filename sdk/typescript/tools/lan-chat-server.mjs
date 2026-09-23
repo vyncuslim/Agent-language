@@ -91,6 +91,8 @@ h1{font-size:20px}
 .hint{color:#93a4b6;font-size:13px}
 #log{border:1px solid #27303a;border-radius:10px;background:#111820;height:52vh;overflow-y:auto;padding:12px;margin:12px 0}
 .msg{margin:8px 0;line-height:1.5;overflow-wrap:anywhere}
+.vaml{display:inline-block;background:#0d1b2a;border:1px solid #31506f;color:#3fb950;font-size:12px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:4px}
+code{font-size:12px;color:#aab6c3;word-break:break-all}
 .meta{color:#93a4b6;font-size:12px}
 .me{color:#3fb950}.sys{color:#d29922}
 .row{display:flex;gap:8px}
@@ -112,7 +114,9 @@ button:disabled{opacity:.5}
 const log=document.getElementById("log"),nameEl=document.getElementById("name"),textEl=document.getElementById("text"),sendBtn=document.getElementById("send"),countEl=document.getElementById("count");
 let lastId=0;
 const esc=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-function add(m){lastId=Math.max(lastId,m.id);const d=document.createElement("div");d.className="msg";const t=new Date(m.at).toLocaleTimeString();d.innerHTML='<span class="meta">['+t+'] <b>'+esc(m.user)+'</b></span><br>'+esc(m.text);log.appendChild(d);while(log.children.length>200)log.removeChild(log.firstChild);log.scrollTop=log.scrollHeight;countEl.textContent='在线消息 '+log.children.length+' 条（服务器共保留最近 200 条）'}
+function crc32bytes(b){let c=0xffffffff;for(let i=0;i<b.length;i++){c^=b[i];for(let k=0;k<8;k++)c=(c>>>1)^(0xedb88320&-(c&1))}return(c^0xffffffff)>>>0}
+function vamlArmorStatus(text){const t=text.trim();const m=/^(VAMLTXT1)\.([A-Za-z0-9_-]+)\.([0-9a-f]{8})$/.exec(t);if(!m)return null;try{const bin=atob(m[2].replace(/-/g,"+").replace(/_/g,"/"));const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);const ok=crc32bytes(bytes).toString(16).padStart(8,"0")===m[3];return{bytes:bytes.length,ok}}catch(e){return{bytes:0,ok:false}}}
+function add(m){lastId=Math.max(lastId,m.id);const d=document.createElement("div");d.className="msg";const t=new Date(m.at).toLocaleTimeString();const v=vamlArmorStatus(m.text);let body=esc(m.text);if(v)body='<span class="vaml">VAML frame · '+v.bytes+' bytes · armor '+(v.ok?"OK":"FAIL")+'</span><br><code>'+esc(m.text.trim())+'</code>';d.innerHTML='<span class="meta">['+t+'] <b>'+esc(m.user)+'</b></span><br>'+body;log.appendChild(d);while(log.children.length>200)log.removeChild(log.firstChild);log.scrollTop=log.scrollHeight;countEl.textContent='在线消息 '+log.children.length+' 条（服务器共保留最近 200 条）'}
 async function load(){try{const r=await fetch("/api/messages?since="+lastId);if(!r.ok)return;for(const m of await r.json())add(m)}catch{}}
 async function send(){const user=nameEl.value.trim().slice(0,32)||"匿名",text=textEl.value.trim().slice(0,2000);if(!text)return;sendBtn.disabled=true;try{const r=await fetch("/api/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({user,text})});if(!r.ok)alert("发送失败："+r.status);else textEl.value=""}catch{alert("网络错误")}finally{sendBtn.disabled=false;textEl.focus()}}
 sendBtn.addEventListener("click",send);
