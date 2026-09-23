@@ -93,3 +93,38 @@ PASS, and damaged-burst soft-combine PASS.
 A real two-computer run counts as **VERIFIED PASS** only after this
 analyzer reports `CRC PASS + BYTE EXACT MATCH` on an actual Computer B
 evidence WAV.
+
+## Channel calibration + carrier equalization
+
+Real rooms are not flat: one deployment showed ~51% of preamble energy on
+1600 Hz but only ~12% on 1200 Hz, with systematic 2000 Hz → 800 Hz confusion
+(`VAC1` byte `0x43` recovered as `0x40`). CRC rules and the `VERIFIED PASS`
+definition are unchanged — calibration only levels the playing field.
+
+Flow (`tools/two-computer-acoustic-evidence.html`):
+
+```text
+B: Arm Calibration Receiver → CALIBRATION LISTENING
+A: Send Calibration (800/1200/1600/2000 Hz, 750 ms tones, 350 ms silence)
+B: measures gains/SNR/offsets → CALIBRATION PASS / DEGRADED → save JSON
+A: load vaml-acoustic-calibration.json (file input)
+B: Arm Evidence Receiver → LISTENING — SEND NOW
+A: Send Calibrated Evidence Probe (per-carrier TX amplitudes)
+B: save the RAW microphone WAV (never a processed signal)
+```
+
+Measurement is narrow-band Goertzel only (broadband RMS never judges
+carriers). Gains normalize to the median carrier. TX compensation is
+`1/sqrt(powerGain)` clamped to `[0.25, 4.0]` (±12 dB) with a `0.9` peak
+ceiling so equalization never clips. RX decisions use
+`measuredPower[f] / channelGain[f]` with raw powers preserved in the report.
+Offsets shift the Goertzel centers; the bounded ±45 Hz search stays.
+
+Analyze with calibration:
+
+```bash
+npm run acoustic:evidence -- capture.wav --calibration vaml-acoustic-calibration.json
+```
+
+The calibration JSON contains channel physics only — no keys or secrets.
+Real capture WAVs stay out of the repo (see `.gitignore`).

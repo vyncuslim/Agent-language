@@ -50,6 +50,7 @@ vaml-acoustic-demo.wav
 vaml-two-computer-evidence-*.wav
 acoustic-evidence-capture-*.wav
 synthetic-evidence-demo.wav
+vaml-acoustic-calibration-capture-*.wav
 
 # TypeScript / Node
 node_modules/

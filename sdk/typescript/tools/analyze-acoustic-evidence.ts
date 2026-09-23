@@ -5,29 +5,45 @@
  * Usage:
  *   npm run acoustic:evidence -- path/to/capture.wav
  *   npm run acoustic:evidence -- path/to/capture.wav --json report.json
+ *   npm run acoustic:evidence -- path/to/capture.wav --calibration vaml-acoustic-calibration.json
  *
- * The input WAV is only read, never modified.
+ * The input WAV is only read, never modified. A calibration file applies
+ * measured carrier offsets + RX normalization; verdict rules are identical
+ * either way (CRC PASS + byte-exact match, no "close enough").
  */
 import { promises as fs } from "node:fs";
-import { analyzeEvidenceWav, formatEvidenceReport } from "../src/acoustic-evidence.js";
+import { basename } from "node:path";
+import { analyzeEvidenceWav, formatEvidenceReport, type EvidenceEqualization } from "../src/acoustic-evidence.js";
+import { loadChannelCalibration, toEvidenceEqualization } from "../src/acoustic-calibration.js";
+
+function flagValue(args: string[], flag: string): string | undefined {
+  const at = args.indexOf(flag);
+  if (at < 0) return undefined;
+  return args[at + 1];
+}
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => a !== "--");
-  const jsonFlag = args.indexOf("--json");
-  let jsonOut: string | undefined;
-  let wavPath: string | undefined;
-  if (jsonFlag >= 0) {
-    jsonOut = args[jsonFlag + 1];
-    if (!jsonOut) {
-      console.error("Missing path after --json");
-      process.exitCode = 2;
-      return;
-    }
+  const jsonOut = flagValue(args, "--json");
+  if (args.includes("--json") && !jsonOut) {
+    console.error("Missing path after --json");
+    process.exitCode = 2;
+    return;
   }
-  const positional = args.filter((a, i) => a !== "--json" && args[i - 1] !== "--json" && !a.startsWith("--"));
-  wavPath = positional[0];
+  const calPath = flagValue(args, "--calibration");
+  if (args.includes("--calibration") && !calPath) {
+    console.error("Missing path after --calibration");
+    process.exitCode = 2;
+    return;
+  }
+  const positional = args.filter((a, i) => {
+    if (!a || a.startsWith("--")) return false;
+    const prev = args[i - 1];
+    return prev !== "--json" && prev !== "--calibration";
+  });
+  const wavPath = positional[0];
   if (!wavPath) {
-    console.error("Usage: npm run acoustic:evidence -- <capture.wav> [--json report.json]");
+    console.error("Usage: npm run acoustic:evidence -- <capture.wav> [--json report.json] [--calibration vaml-acoustic-calibration.json]");
     process.exitCode = 2;
     return;
   }
@@ -39,7 +55,27 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const report = analyzeEvidenceWav(bytes);
+  let eq: EvidenceEqualization | undefined;
+  let eqSource = "inline";
+  if (calPath) {
+    try {
+      const raw = await fs.readFile(calPath, "utf8");
+      const cal = loadChannelCalibration(raw);
+      const view = toEvidenceEqualization(cal);
+      eq = { frequenciesHz: view.frequenciesHz, rxGains: view.rxGains };
+      eqSource = basename(calPath);
+      if (cal.quality.blockSend) {
+        console.error(`Warning: calibration quality is ${cal.quality.status} with blockSend set; analysis continues but the channel needs attention.`);
+      } else {
+        console.error(`Calibration ${cal.quality.status}: centers ${view.frequenciesHz.join("/")} Hz, RX gains ${view.rxGains.map((g) => g.toFixed(3)).join("/")}.`);
+      }
+    } catch (error) {
+      console.error(`Cannot use calibration ${calPath}: ${error instanceof Error ? error.message : error}`);
+      process.exitCode = 2;
+      return;
+    }
+  }
+  const report = analyzeEvidenceWav(bytes, eq, eqSource);
   console.log(formatEvidenceReport(report));
   if (jsonOut) {
     await fs.writeFile(jsonOut, JSON.stringify(report, null, 2), "utf8");

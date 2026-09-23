@@ -51,6 +51,38 @@ export function expectedPacketSymbols(): number[] {
   return [...EXPECTED_PACKET_SYMBOLS];
 }
 
+/**
+ * Receiver equalization derived from a channel calibration.
+ * - frequenciesHz: calibration-derived Goertzel centers (nominal + offset).
+ *   The bounded ±45 Hz Doppler search around them is retained.
+ * - rxGains: per-carrier channel gains (> 0). Symbol decisions compare
+ *   measuredPower[f] / rxGains[f]; raw powers are always preserved alongside.
+ */
+export interface EvidenceEqualization {
+  frequenciesHz: readonly [number, number, number, number];
+  rxGains: readonly [number, number, number, number];
+}
+
+function eqCenter(eq: EvidenceEqualization | undefined, carrier: number): number {
+  return eq ? eq.frequenciesHz[carrier] : EVIDENCE_FREQUENCIES[carrier];
+}
+
+function eqGain(eq: EvidenceEqualization | undefined, carrier: number): number {
+  return eq ? eq.rxGains[carrier] : 1;
+}
+
+function validateEqualization(eq: EvidenceEqualization, sampleRate: number): void {
+  if (!eq || eq.frequenciesHz.length !== 4 || eq.rxGains.length !== 4) {
+    throw new Error("Invalid evidence equalization");
+  }
+  for (let s = 0; s < 4; s++) {
+    const f = eq.frequenciesHz[s];
+    const g = eq.rxGains[s];
+    if (!Number.isFinite(f) || f <= 0 || f >= sampleRate / 2) throw new Error("Invalid equalized frequency");
+    if (!Number.isFinite(g) || !(g > 0)) throw new Error("Invalid RX channel gain");
+  }
+}
+
 // ---------------------------------------------------------------- WAV ----
 
 export interface WavIntegrity {
@@ -175,7 +207,10 @@ interface SymbolPowers {
   symbol: number;
   start: number;
   quality: number;
+  /** Raw narrow-band powers (never scaled). */
   powers: [number, number, number, number];
+  /** Decision powers: raw divided by RX channel gains (== raw when unequalized). */
+  normalizedPowers: [number, number, number, number];
 }
 
 function goertzel(samples: Float64Array, start: number, count: number, frequency: number, sampleRate: number): number {
@@ -200,6 +235,7 @@ function decideFine(
   samplesPerSymbol: number,
   sampleRate: number,
   searchRadius: number,
+  eq?: EvidenceEqualization,
 ): SymbolPowers | undefined {
   const guard = Math.max(2, Math.round(samplesPerSymbol * 0.22));
   const window = Math.max(64, Math.round(samplesPerSymbol) - guard * 2);
@@ -211,20 +247,22 @@ function decideFine(
     const a = start + guard;
     if (a < 0 || a + window > samples.length) continue;
     const powers: [number, number, number, number] = [0, 0, 0, 0];
+    const normalized: [number, number, number, number] = [0, 0, 0, 0];
     for (let s = 0; s < 4; s++) {
       let p = 0;
       for (const df of [-45, 0, 45]) {
-        p = Math.max(p, goertzel(samples, a, window, EVIDENCE_FREQUENCIES[s] + df, sampleRate));
+        p = Math.max(p, goertzel(samples, a, window, eqCenter(eq, s) + df, sampleRate));
       }
       powers[s] = p;
+      normalized[s] = p / eqGain(eq, s);
     }
     let winner = 0;
-    for (let s = 1; s < 4; s++) if (powers[s] > powers[winner]) winner = s;
+    for (let s = 1; s < 4; s++) if (normalized[s] > normalized[winner]) winner = s;
     let second = -Infinity;
-    for (let s = 0; s < 4; s++) if (s !== winner && powers[s] > second) second = powers[s];
-    const q = powers[winner] > 0 ? Math.max(0, (powers[winner] - Math.max(0, second)) / powers[winner]) : 0;
+    for (let s = 0; s < 4; s++) if (s !== winner && normalized[s] > second) second = normalized[s];
+    const q = normalized[winner] > 0 ? Math.max(0, (normalized[winner] - Math.max(0, second)) / normalized[winner]) : 0;
     if (!best || q > best.quality) {
-      best = { symbol: winner, start, quality: q, powers };
+      best = { symbol: winner, start, quality: q, powers, normalizedPowers: normalized };
     }
   }
   return best;
@@ -236,6 +274,7 @@ function decideFast(
   predictedStart: number,
   samplesPerSymbol: number,
   sampleRate: number,
+  eq?: EvidenceEqualization,
 ): { symbol: number; quality: number; start: number } | undefined {
   const guard = Math.max(2, Math.round(samplesPerSymbol * 0.22));
   const window = Math.max(64, Math.round(samplesPerSymbol) - guard * 2);
@@ -245,14 +284,14 @@ function decideFast(
   let best = -Infinity;
   let second = -Infinity;
   for (let s = 0; s < 4; s++) {
-    const p = goertzel(samples, a, window, EVIDENCE_FREQUENCIES[s], sampleRate);
+    const p = goertzel(samples, a, window, eqCenter(eq, s), sampleRate) / eqGain(eq, s);
     if (p > best) { second = best; best = p; winner = s; }
     else if (p > second) second = p;
   }
   const q = best > 0 ? Math.max(0, (best - Math.max(0, second)) / best) : 0;
   return { symbol: winner, quality: q, start: Math.round(predictedStart) };
 }
-function decideCoarse(samples: Float64Array, predictedStart: number, samplesPerSymbol: number, sampleRate: number): { symbol: number; quality: number } | undefined {
+function decideCoarse(samples: Float64Array, predictedStart: number, samplesPerSymbol: number, sampleRate: number, eq?: EvidenceEqualization): { symbol: number; quality: number } | undefined {
   const guard = Math.round(samplesPerSymbol * 0.25);
   const window = Math.max(96, Math.round(samplesPerSymbol * 0.5));
   const a = Math.round(predictedStart) + guard;
@@ -261,7 +300,7 @@ function decideCoarse(samples: Float64Array, predictedStart: number, samplesPerS
   let best = -Infinity;
   let second = -Infinity;
   for (let s = 0; s < 4; s++) {
-    const p = goertzel(samples, a, window, EVIDENCE_FREQUENCIES[s], sampleRate);
+    const p = goertzel(samples, a, window, eqCenter(eq, s), sampleRate) / eqGain(eq, s);
     if (p > best) { second = best; best = p; winner = s; }
     else if (p > second) second = p;
   }
@@ -269,11 +308,11 @@ function decideCoarse(samples: Float64Array, predictedStart: number, samplesPerS
   return { symbol: winner, quality: q };
 }
 
-function scorePreambleCoarse(samples: Float64Array, start: number, sps: number, sampleRate: number, probeLength: number): { matches: number; quality: number } | undefined {
+function scorePreambleCoarse(samples: Float64Array, start: number, sps: number, sampleRate: number, probeLength: number, eq?: EvidenceEqualization): { matches: number; quality: number } | undefined {
   let matches = 0;
   let quality = 0;
   for (let i = 0; i < probeLength; i++) {
-    const d = decideCoarse(samples, start + i * sps, sps, sampleRate);
+    const d = decideCoarse(samples, start + i * sps, sps, sampleRate, eq);
     if (!d) return undefined;
     if (d.symbol === EVIDENCE_PREAMBLE[i]) { matches++; quality += d.quality; }
     else quality -= 0.15;
@@ -281,7 +320,7 @@ function scorePreambleCoarse(samples: Float64Array, start: number, sps: number, 
   return { matches, quality };
 }
 
-function scorePreambleFine(samples: Float64Array, start: number, sps: number, sampleRate: number): { matches: number; quality: number } | undefined {
+function scorePreambleFine(samples: Float64Array, start: number, sps: number, sampleRate: number, eq?: EvidenceEqualization): { matches: number; quality: number } | undefined {
   // Sequential cursor version (kept explicit for timing correctness).
   // Uses the fast single-offset decision: scoring runs over up to
   // 6 seeds x 11 clock hypotheses x ~13 timing offsets, so the
@@ -290,7 +329,7 @@ function scorePreambleFine(samples: Float64Array, start: number, sps: number, sa
   let matches = 0;
   let quality = 0;
   for (const expected of EVIDENCE_PREAMBLE) {
-    const d = decideFast(samples, cursor, sps, sampleRate);
+    const d = decideFast(samples, cursor, sps, sampleRate, eq);
     if (!d) return undefined;
     if (d.symbol === expected) { matches++; quality += d.quality; }
     else quality -= 0.25;
@@ -315,8 +354,14 @@ export interface SymbolAnalysis {
 
 export interface CarrierAnalysis {
   frequency: number;
+  /** Goertzel center actually used (nominal, or calibration-derived). */
+  appliedCenterHz: number;
   meanPower: number;
   relativePower: number;
+  /** Mean power after RX gain normalization. */
+  normalizedMeanPower: number;
+  normalizedRelativePower: number;
+  /** Absolute peak offset vs the nominal carrier frequency. */
   frequencyOffsetHz: number;
   snrDb: number;
   margin: number;
@@ -338,6 +383,12 @@ export interface BurstReport {
   endSample: number;
   timing: TimingAnalysis;
   carriers: CarrierAnalysis[];
+  /** Equalization actually applied to this burst (null fields when off). */
+  equalization: {
+    applied: boolean;
+    centersHz: number[];
+    rxGains: number[];
+  };
   preamble: SymbolAnalysis[];
   preambleMatches: number;
   packetSymbols: SymbolAnalysis[];
@@ -369,6 +420,13 @@ export interface EvidenceReport {
   wav: WavIntegrity;
   profile: { symbolMs: number; frequencies: number[]; preambleLength: number; repetitions: number; gapMs: number };
   expectedPayloadHex: string;
+  /** Calibration applied to this analysis (null when unequalized). */
+  equalization: {
+    applied: boolean;
+    source: string;
+    centersHz: number[];
+    rxGains: number[];
+  } | null;
   bursts: BurstReport[];
   combined: CombinedReport | null;
   verdict: EvidenceVerdict;
@@ -431,7 +489,7 @@ interface RefinedCandidate {
  *  packet). Clock error accumulates over the whole burst (1% drift shifts late
  *  symbols by more than a full symbol), so only the true clock scores near
  *  112 matches. This is what makes the ppm choice decisive. */
-function scoreFullBurst(samples: Float64Array, start: number, sps: number, sampleRate: number): { matches: number; quality: number; preambleMatches: number } | undefined {
+function scoreFullBurst(samples: Float64Array, start: number, sps: number, sampleRate: number, eq?: EvidenceEqualization): { matches: number; quality: number; preambleMatches: number } | undefined {
   let cursor = start;
   let matches = 0;
   let quality = 0;
@@ -439,7 +497,7 @@ function scoreFullBurst(samples: Float64Array, start: number, sps: number, sampl
   const all = EVIDENCE_PREAMBLE.length + EXPECTED_PACKET_SYMBOLS.length;
   for (let i = 0; i < all; i++) {
     const expected = i < EVIDENCE_PREAMBLE.length ? EVIDENCE_PREAMBLE[i] : EXPECTED_PACKET_SYMBOLS[i - EVIDENCE_PREAMBLE.length];
-    const d = decideFast(samples, cursor, sps, sampleRate);
+    const d = decideFast(samples, cursor, sps, sampleRate, eq);
     if (!d) return undefined;
     if (d.symbol === expected) {
       matches++;
@@ -453,7 +511,7 @@ function scoreFullBurst(samples: Float64Array, start: number, sps: number, sampl
   return { matches, quality, preambleMatches };
 }
 
-function refineSeed(samples: Float64Array, sampleRate: number, seedStart: number): RefinedCandidate | undefined {
+function refineSeed(samples: Float64Array, sampleRate: number, seedStart: number, eq?: EvidenceEqualization): RefinedCandidate | undefined {
   const nominal = (sampleRate * EVIDENCE_SYMBOL_MS) / 1000;
   const radius = Math.round(nominal * 0.55);
   const step = Math.max(2, Math.round(nominal / 12));
@@ -463,7 +521,7 @@ function refineSeed(samples: Float64Array, sampleRate: number, seedStart: number
   for (let d = -radius; d <= radius; d += step) {
     const start = seedStart + d;
     if (start < 0) continue;
-    const scored = scorePreambleFine(samples, start, nominal, sampleRate);
+    const scored = scorePreambleFine(samples, start, nominal, sampleRate, eq);
     if (!scored) continue;
     const score = scored.matches * 8 + scored.quality;
     if (!best || score > best.score) {
@@ -482,7 +540,7 @@ function refineSeed(samples: Float64Array, sampleRate: number, seedStart: number
     for (let d = -narrow; d <= narrow; d += step) {
       const start = best.start + d;
       if (start < 0) continue;
-      const scored = scoreFullBurst(samples, start, sps, sampleRate);
+      const scored = scoreFullBurst(samples, start, sps, sampleRate, eq);
       if (!scored) continue;
       const score = scored.matches * 8 + scored.quality;
       if (!refined || score > refined.score) {
@@ -493,7 +551,7 @@ function refineSeed(samples: Float64Array, sampleRate: number, seedStart: number
   return refined;
 }
 
-function analyzeTimingEarlyLate(samples: Float64Array, start: number, sps: number, sampleRate: number): number {
+function analyzeTimingEarlyLate(samples: Float64Array, start: number, sps: number, sampleRate: number, eq?: EvidenceEqualization): number {
   const guard = Math.max(2, Math.round(sps * 0.22));
   const window = Math.max(64, Math.round(sps) - guard * 2);
   const delta = Math.max(1, Math.round(sps * 0.02));
@@ -503,19 +561,18 @@ function analyzeTimingEarlyLate(samples: Float64Array, start: number, sps: numbe
     const center = Math.round(start + i * sps) + guard;
     if (center - delta < 0 || center + delta + window > samples.length) continue;
     const expected = EVIDENCE_PREAMBLE[i];
-    const early = goertzel(samples, center - delta, window, EVIDENCE_FREQUENCIES[expected], sampleRate);
-    const late = goertzel(samples, center + delta, window, EVIDENCE_FREQUENCIES[expected], sampleRate);
+    const early = goertzel(samples, center - delta, window, eqCenter(eq, expected), sampleRate);
+    const late = goertzel(samples, center + delta, window, eqCenter(eq, expected), sampleRate);
     const denom = early + late;
     if (denom > 0) { acc += (late - early) / denom; n++; }
   }
   return n ? acc / n : 0;
 }
 
-function analyzeCarriers(preambleSymbols: SymbolAnalysis[], samples: Float64Array, start: number, sps: number, sampleRate: number): CarrierAnalysis[] {
-  const nominal = (sampleRate * EVIDENCE_SYMBOL_MS) / 1000;
-  void nominal;
+function analyzeCarriers(preambleSymbols: SymbolAnalysis[], samples: Float64Array, start: number, sps: number, sampleRate: number, eq?: EvidenceEqualization): CarrierAnalysis[] {
   const offsets = [-80, -60, -40, -20, 0, 20, 40, 60, 80];
   return EVIDENCE_FREQUENCIES.map((freq, carrier) => {
+    const center = eqCenter(eq, carrier);
     const relevant = preambleSymbols.filter((s) => s.expected === carrier);
     const meanPower = relevant.length
       ? relevant.reduce((a, s) => a + s.winnerPower, 0) / relevant.length
@@ -531,7 +588,7 @@ function analyzeCarriers(preambleSymbols: SymbolAnalysis[], samples: Float64Arra
         if (EVIDENCE_PREAMBLE[i] !== carrier) continue;
         const a = Math.round(start + i * sps) + guard;
         if (a < 0 || a + window > samples.length) continue;
-        total += goertzel(samples, a, window, freq + df, sampleRate);
+        total += goertzel(samples, a, window, center + df, sampleRate);
         count++;
       }
       const avg = count ? total / count : 0;
@@ -549,11 +606,15 @@ function analyzeCarriers(preambleSymbols: SymbolAnalysis[], samples: Float64Arra
     const snrDb = relevant.length && noise > 0 && sig > 0
       ? 10 * Math.log10(Math.max(1e-12, sig / relevant.length) / Math.max(1e-12, noise / relevant.length))
       : Number.NEGATIVE_INFINITY;
+    const gain = eqGain(eq, carrier);
     return {
       frequency: freq,
+      appliedCenterHz: center,
       meanPower,
       relativePower: 0, // filled by caller after totals are known
-      frequencyOffsetHz: bestOffset,
+      normalizedMeanPower: meanPower / gain,
+      normalizedRelativePower: 0, // filled by caller after totals are known
+      frequencyOffsetHz: center + bestOffset - freq,
       snrDb,
       margin: relevant.length ? m / relevant.length : 0,
     };
@@ -575,7 +636,7 @@ function fitSamplesPerSymbol(x: number[], y: number[], fallback: number): number
   return Number.isFinite(slope) && slope > 0 ? slope : fallback;
 }
 
-function decodeBurst(samples: Float64Array, sampleRate: number, candidate: RefinedCandidate, burstIndex: number): BurstReport {
+function decodeBurst(samples: Float64Array, sampleRate: number, candidate: RefinedCandidate, burstIndex: number, eq?: EvidenceEqualization): BurstReport {
   const nominal = (sampleRate * EVIDENCE_SYMBOL_MS) / 1000;
   const search = Math.max(4, Math.round(candidate.samplesPerSymbol * 0.02));
   const preamble: SymbolAnalysis[] = [];
@@ -586,7 +647,7 @@ function decodeBurst(samples: Float64Array, sampleRate: number, candidate: Refin
   const fitY: number[] = [];
   let cursor = candidate.start;
   for (let i = 0; i < EVIDENCE_PREAMBLE.length; i++) {
-    const d = decideFine(samples, cursor, candidate.samplesPerSymbol, sampleRate, search);
+    const d = decideFine(samples, cursor, candidate.samplesPerSymbol, sampleRate, search, eq);
     if (!d) throw new Error("Truncated preamble symbol stream");
     const sorted = [...d.powers].sort((a, b) => b - a);
     const winner = sorted[0];
@@ -611,7 +672,7 @@ function decodeBurst(samples: Float64Array, sampleRate: number, candidate: Refin
   const packetSymbols: SymbolAnalysis[] = [];
   const decodedSymbols: number[] = [];
   for (let i = 0; i < EXPECTED_PACKET_SYMBOLS.length; i++) {
-    const d = decideFine(samples, cursor, candidate.samplesPerSymbol, sampleRate, search);
+    const d = decideFine(samples, cursor, candidate.samplesPerSymbol, sampleRate, search, eq);
     if (!d) throw new Error("Truncated packet symbol stream");
     const sorted = [...d.powers].sort((a, b) => b - a);
     const winner = sorted[0];
@@ -652,9 +713,13 @@ function decodeBurst(samples: Float64Array, sampleRate: number, candidate: Refin
   const lengthValid = decodedLength === EVIDENCE_FRAME_LENGTH;
   const passed = magicOk && lengthValid && crcOk && payloadMatch;
 
-  const carriers = analyzeCarriers(preamble, samples, candidate.start, candidate.samplesPerSymbol, sampleRate);
+  const carriers = analyzeCarriers(preamble, samples, candidate.start, candidate.samplesPerSymbol, sampleRate, eq);
   const totalPower = carriers.reduce((a, c) => a + c.meanPower, 0);
-  for (const c of carriers) c.relativePower = totalPower > 0 ? c.meanPower / totalPower : 0;
+  const totalNormalized = carriers.reduce((a, c) => a + c.normalizedMeanPower, 0);
+  for (const c of carriers) {
+    c.relativePower = totalPower > 0 ? c.meanPower / totalPower : 0;
+    c.normalizedRelativePower = totalNormalized > 0 ? c.normalizedMeanPower / totalNormalized : 0;
+  }
 
   const totalSymbols = EVIDENCE_PREAMBLE.length + EXPECTED_PACKET_SYMBOLS.length;
   // Measured timing: least-squares fit of detected symbol starts. Each
@@ -674,9 +739,14 @@ function decodeBurst(samples: Float64Array, sampleRate: number, candidate: Refin
       estimatedSamplesPerSymbol: measuredSps,
       clockDriftPpm: driftPpm,
       accumulatedErrorSamples: (measuredSps - nominal) * totalSymbols,
-      earlyLateError: analyzeTimingEarlyLate(samples, candidate.start, candidate.samplesPerSymbol, sampleRate),
+      earlyLateError: analyzeTimingEarlyLate(samples, candidate.start, candidate.samplesPerSymbol, sampleRate, eq),
     },
     carriers,
+    equalization: {
+      applied: eq !== undefined,
+      centersHz: [0, 1, 2, 3].map((s) => eqCenter(eq, s)),
+      rxGains: [0, 1, 2, 3].map((s) => eqGain(eq, s)),
+    },
     preamble,
     preambleMatches,
     packetSymbols,
@@ -696,10 +766,27 @@ function decodeBurst(samples: Float64Array, sampleRate: number, candidate: Refin
 
 /**
  * Analyze parsed evidence samples. Pure function used by the CLI and tests.
- * Never modifies its input.
+ * Never modifies its input. Pass a calibration-derived equalization to apply
+ * measured carrier offsets + RX normalization; omit it for the default
+ * unequalized path. Verdict rules are identical either way.
  */
-export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number, integrity: WavIntegrity): EvidenceReport {
+export function analyzeEvidenceSamples(
+  samples: Float64Array,
+  sampleRate: number,
+  integrity: WavIntegrity,
+  eq?: EvidenceEqualization,
+  eqSource = "inline",
+): EvidenceReport {
   const nominal = (sampleRate * EVIDENCE_SYMBOL_MS) / 1000;
+  if (eq !== undefined) validateEqualization(eq, sampleRate);
+  const eqSummary = eq !== undefined
+    ? {
+      applied: true as const,
+      source: eqSource,
+      centersHz: [0, 1, 2, 3].map((s) => eqCenter(eq, s)),
+      rxGains: [0, 1, 2, 3].map((s) => eqGain(eq, s)),
+    }
+    : null;
   const profile = {
     symbolMs: EVIDENCE_SYMBOL_MS,
     frequencies: [...EVIDENCE_FREQUENCIES],
@@ -711,6 +798,7 @@ export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number
     wav: integrity,
     profile,
     expectedPayloadHex: EVIDENCE_PAYLOAD_HEX,
+    equalization: eqSummary,
     bursts,
     combined,
     verdict,
@@ -727,7 +815,7 @@ export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number
   const maxStart = samples.length - Math.ceil((EVIDENCE_PREAMBLE.length + EXPECTED_PACKET_SYMBOLS.length) * nominal * 0.9);
   const hits: Array<{ start: number; matches: number; score: number }> = [];
   for (let off = 0; off <= Math.max(0, maxStart); off += step) {
-    const s = scorePreambleCoarse(samples, off, nominal, sampleRate, probeLength);
+    const s = scorePreambleCoarse(samples, off, nominal, sampleRate, probeLength, eq);
     if (s) hits.push({ start: off, matches: s.matches, score: s.matches * 10 + s.quality });
   }
   hits.sort((a, b) => b.score - a.score);
@@ -746,7 +834,7 @@ export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number
   // Stage 3: timing refinement per candidate (global timing + clock search).
   const refined: RefinedCandidate[] = [];
   for (const seed of seeds) {
-    const r = refineSeed(samples, sampleRate, seed.start);
+    const r = refineSeed(samples, sampleRate, seed.start, eq);
     // Gate well above the noise ceiling (random audio scores ~8/32 here).
     if (r && r.preambleMatches >= 20) refined.push(r);
   }
@@ -760,7 +848,7 @@ export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number
   const bursts: BurstReport[] = [];
   for (let i = 0; i < top.length; i++) {
     try {
-      bursts.push(decodeBurst(samples, sampleRate, top[i], i + 1));
+      bursts.push(decodeBurst(samples, sampleRate, top[i], i + 1, eq));
     } catch {
       // A truncated candidate is evidence of absence, not a silent decode.
     }
@@ -802,14 +890,14 @@ export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number
   const singlePass = bursts.find((b) => b.passed);
   if (singlePass) {
     return {
-      wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, bursts, combined,
+      wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, equalization: eqSummary, bursts, combined,
       verdict: "VERIFIED PASS",
       verdictReason: `Burst ${singlePass.burst} recovered VAC1 + length ${EVIDENCE_FRAME_LENGTH} + CRC PASS + byte-exact payload ${EVIDENCE_PAYLOAD_HEX}`,
     };
   }
   if (combined?.passed) {
     return {
-      wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, bursts, combined,
+      wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, equalization: eqSummary, bursts, combined,
       verdict: "VERIFIED PASS",
       verdictReason: `Strict soft-combined packet recovered VAC1 + length ${EVIDENCE_FRAME_LENGTH} + CRC PASS + byte-exact payload ${EVIDENCE_PAYLOAD_HEX}`,
     };
@@ -820,20 +908,20 @@ export function analyzeEvidenceSamples(samples: Float64Array, sampleRate: number
   if (anyHeader || anyLengthOk || maxPreamble >= 24 || (combined?.magicOk ?? false)) {
     const detail = bursts.map((b) => `burst${b.burst}:preamble ${b.preambleMatches}/${EVIDENCE_PREAMBLE.length},VAC1 ${b.magicOk ? "ok" : "bad"},len ${b.decodedLength},CRC ${b.crcOk ? "PASS" : "FAIL"}`).join("; ");
     return {
-      wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, bursts, combined,
+      wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, equalization: eqSummary, bursts, combined,
       verdict: "VERIFIED PARTIAL",
       verdictReason: `Packet structure partially recovered (${detail}) but no burst or strict combination reached CRC PASS + byte-exact match`,
     };
   }
   return {
-    wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, bursts, combined,
+    wav: integrity, profile, expectedPayloadHex: EVIDENCE_PAYLOAD_HEX, equalization: eqSummary, bursts, combined,
     verdict: "VERIFIED FAIL",
     verdictReason: "No burst recovered VAML packet structure (preamble/magic/length all below evidence thresholds)",
   };
 }
 
 /** Convenience entry point: parse bytes then analyze. Never modifies input. */
-export function analyzeEvidenceWav(wav: Uint8Array): EvidenceReport {
+export function analyzeEvidenceWav(wav: Uint8Array, eq?: EvidenceEqualization, eqSource = "inline"): EvidenceReport {
   const parsed = parseEvidenceWav(wav);
   if (!parsed.integrity.valid || !parsed.samples.length) {
     return {
@@ -846,13 +934,21 @@ export function analyzeEvidenceWav(wav: Uint8Array): EvidenceReport {
         gapMs: EVIDENCE_GAP_MS,
       },
       expectedPayloadHex: EVIDENCE_PAYLOAD_HEX,
+      equalization: eq !== undefined
+        ? {
+          applied: true as const,
+          source: eqSource,
+          centersHz: [0, 1, 2, 3].map((s) => eqCenter(eq, s)),
+          rxGains: [0, 1, 2, 3].map((s) => eqGain(eq, s)),
+        }
+        : null,
       bursts: [],
       combined: null,
       verdict: "VERIFIED FAIL",
       verdictReason: `Invalid WAV: ${parsed.integrity.error ?? "unknown"}`,
     };
   }
-  return analyzeEvidenceSamples(parsed.samples, parsed.integrity.sampleRate, parsed.integrity);
+  return analyzeEvidenceSamples(parsed.samples, parsed.integrity.sampleRate, parsed.integrity, eq, eqSource);
 }
 
 export function formatEvidenceReport(report: EvidenceReport): string {
@@ -865,6 +961,12 @@ export function formatEvidenceReport(report: EvidenceReport): string {
   lines.push(`RMS: ${w.rms.toFixed(6)}  Peak: ${w.peak.toFixed(6)}  Clipping: ${(w.clippingRatio * 100).toFixed(3)}%`);
   lines.push(`Profile: ${report.profile.symbolMs} ms symbols, ${report.profile.frequencies.join("/")} Hz 4-FSK, ${report.profile.preambleLength}-symbol preamble, ${report.profile.repetitions} bursts`);
   lines.push(`Expected payload: ${report.expectedPayloadHex}`);
+  if (report.equalization?.applied) {
+    const e = report.equalization;
+    lines.push(`Equalization: source ${e.source}`);
+    lines.push(`  Centers: ${e.centersHz.map((f) => `${f.toFixed(0)} Hz`).join(" / ")}`);
+    lines.push(`  RX gains: ${e.rxGains.map((g) => g.toFixed(3)).join(" / ")}`);
+  }
   lines.push(`Bursts detected: ${report.bursts.length}`);
   lines.push("");
   for (const b of report.bursts) {
@@ -878,6 +980,9 @@ export function formatEvidenceReport(report: EvidenceReport): string {
     for (const c of b.carriers) {
       const snr = Number.isFinite(c.snrDb) ? `${c.snrDb.toFixed(1)} dB` : "-inf";
       lines.push(`  Carrier ${c.frequency} Hz: rel ${(c.relativePower * 100).toFixed(1)}% offset ${c.frequencyOffsetHz >= 0 ? "+" : ""}${c.frequencyOffsetHz} Hz SNR ${snr} margin ${(c.margin * 100).toFixed(1)}%`);
+      if (b.equalization.applied) {
+        lines.push(`    norm rel ${(c.normalizedRelativePower * 100).toFixed(1)}% (center ${c.appliedCenterHz.toFixed(0)} Hz, raw preserved above)`);
+      }
     }
     lines.push(`  Burst verdict: ${b.passed ? "PASS (CRC + exact match)" : "not passed"}`);
   }
