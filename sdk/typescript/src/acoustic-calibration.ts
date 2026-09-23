@@ -28,6 +28,7 @@
  *   only measured e_s, never g_s x t_s squared.
  */
 
+import { createHash } from "node:crypto";
 import {
   decodeKnownSymbols,
   EVIDENCE_FREQUENCIES,
@@ -765,8 +766,7 @@ export function buildCalibrationV2(input: BuildCalibrationV2Input): ChannelCalib
   const round2 = measureSymbolRound(input.round2Samples, input.sampleRate, symbols);
 
   const predicted = [0, 1, 2, 3].map((s) => round1.symbolGains[s] * derived.txAmplitudes[s] * derived.txAmplitudes[s]);
-  const predictedMedian = medianOfFour(predicted);
-  const predictedEffectiveGains = predicted.map((p) => p / predictedMedian) as [number, number, number, number];
+  const predictedEffectiveGains = normalizePowerGains(predicted);
 
   const round1Quality = gateSymbolRound(round1, clippingRatioOf(input.round1Samples), "round1");
   const round2Quality = gateSymbolRound(round2, clippingRatioOf(input.round2Samples), "round2");
@@ -808,6 +808,26 @@ export function serializeChannelCalibrationV2(calibration: ChannelCalibrationV2)
   return JSON.stringify(calibration, null, 2);
 }
 
+/**
+ * R4 hash linkage: prove the v2 profile was produced by THESE two raw round
+ * recordings. Hashes cover the raw WAV bytes (the same bytes the recorder
+ * saves and the analyzer would re-read). Any mismatch REJECTS.
+ */
+export function verifyCalibrationWavHashes(
+  calibration: ChannelCalibrationV2,
+  round1Wav: Uint8Array,
+  round2Wav: Uint8Array,
+): void {
+  const round1 = createHash("sha256").update(round1Wav).digest("hex");
+  const round2 = createHash("sha256").update(round2Wav).digest("hex");
+  if (round1 !== calibration.round1Sha256) {
+    throw new Error("Round-1 WAV SHA-256 mismatch: calibration does not match this recording");
+  }
+  if (round2 !== calibration.round2Sha256) {
+    throw new Error("Round-2 WAV SHA-256 mismatch: calibration does not match this recording");
+  }
+}
+
 function assertSha256(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
     throw new Error(`Invalid ${field}: calibration v2 requires the 64-hex SHA-256 of the raw round WAV`);
@@ -818,6 +838,21 @@ function medianOfFour(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const median = (sorted[1] + sorted[2]) / 2;
   return median > 0 ? median : 1e-12;
+}
+
+function normalizePowerGains(values: number[]): [number, number, number, number] {
+  return values.map((v) => v / medianOfFour(values)) as [number, number, number, number];
+}
+
+/** Exactness bar for persisted-vs-recomputed gains (JSON round-trips doubles). */
+const GAIN_CONSISTENCY_TOLERANCE = 1e-9;
+
+function assertTupleClose(actual: readonly [number, number, number, number], expected: readonly [number, number, number, number], field: string): void {
+  for (let i = 0; i < 4; i++) {
+    if (!(Math.abs(actual[i] - expected[i]) <= GAIN_CONSISTENCY_TOLERANCE)) {
+      throw new Error(`Invalid ${field}: does not match measured round data`);
+    }
+  }
 }
 
 /**
@@ -865,6 +900,16 @@ export function loadChannelCalibrationV2(json: string): ChannelCalibrationV2 {
   if (!quality || (quality.status !== "CALIBRATION PASS" && quality.status !== "CALIBRATION DEGRADED")) {
     throw new Error("Invalid calibration quality gate");
   }
+  // R1/R4 closed-loop integrity: persisted aggregates must equal the round
+  // measurements they claim to summarize. Hand-edited gains are rejected
+  // here, so the analyzer can never be fed swapped-in values.
+  assertTupleClose(gains, round1.symbolGains, "rawSymbolGains");
+  assertTupleClose(effectiveRxGains, round2.symbolGains, "effectiveRxGains");
+  assertTupleClose(measured, round2.symbolGains, "measuredEffectiveGains");
+  const recomputedPredicted = normalizePowerGains(
+    [0, 1, 2, 3].map((s) => round1.symbolGains[s] * txAmplitudes[s] * txAmplitudes[s]),
+  );
+  assertTupleClose(predicted, recomputedPredicted, "predictedEffectiveGains");
   return {
     version: CALIBRATION_V2_VERSION,
     sampleRate: cal["sampleRate"] as number,

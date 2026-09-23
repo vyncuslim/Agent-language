@@ -26,6 +26,7 @@ import {
   serializeChannelCalibrationV2,
   SYMBOL_CAL_PATTERN,
   toEvidenceEqualizationV2,
+  verifyCalibrationWavHashes,
 } from "../src/acoustic-calibration.js";
 
 const SAMPLE_RATE = 48000;
@@ -264,6 +265,57 @@ test("nonlinear channel: theory FAILs while measured Round-2 e_s PASSes (same te
   assert.equal(fixed.equalization?.round1Sha256, v2.round1Sha256);
   assert.equal(fixed.equalization?.round2Sha256, v2.round2Sha256);
   assert.equal(fixed.bursts[0].preambleMatches, 32);
+});
+
+test("v2 loader rejects hand-edited gains (R1 integrity)", () => {
+  const channel = [1.1, 0.6, 1.8, 0.22];
+  const v2 = buildClosedLoopV2(channel, { hum: 0.2, nonlinear: false });
+  const tampered = (mutate: (draft: Record<string, unknown>) => void, pattern: RegExp): void => {
+    const draft = JSON.parse(serializeChannelCalibrationV2(v2)) as Record<string, unknown>;
+    mutate(draft);
+    assert.throws(() => loadChannelCalibrationV2(JSON.stringify(draft)), pattern);
+  };
+  tampered((d) => {
+    const gains = d["effectiveRxGains"] as number[];
+    gains[0] = gains[0] * 2;
+  }, /effectiveRxGains/);
+  tampered((d) => {
+    const diag = (d["diagnosticComparison"] as Record<string, unknown>)["measuredEffectiveGains"] as number[];
+    diag[1] = diag[1] * 0.5;
+  }, /measuredEffectiveGains/);
+  tampered((d) => {
+    const gains = d["rawSymbolGains"] as number[];
+    gains[2] = gains[2] + 0.01;
+  }, /rawSymbolGains/);
+  tampered((d) => {
+    const diag = (d["diagnosticComparison"] as Record<string, unknown>)["predictedEffectiveGains"] as number[];
+    diag[3] = diag[3] + 0.001;
+  }, /predictedEffectiveGains/);
+});
+
+test("round WAV hashes link the profile to its recordings (R4)", () => {
+  const seq = encodeSymbolCalibration(SAMPLE_RATE, [0.72, 0.72, 0.72, 0.72], ROUNDS);
+  const r1file = concat([silence(0.3), addWhiteNoise(seq.samples, 0.02, 4242), silence(0.3)]);
+  const r1wav = floatToWav(r1file);
+  const r1measured = measureSymbolRound(r1file, SAMPLE_RATE, calSequence());
+  const derived = deriveTxAmplitudes(r1measured.symbolGains, 0.72);
+  const seq2 = encodeSymbolCalibration(SAMPLE_RATE, derived.txAmplitudes, ROUNDS);
+  const r2file = concat([silence(0.3), addWhiteNoise(seq2.samples, 0.02, 4343), silence(0.3)]);
+  const r2wav = floatToWav(r2file);
+  const v2 = buildCalibrationV2({
+    sampleRate: SAMPLE_RATE,
+    rounds: ROUNDS,
+    round1Samples: r1file,
+    round1Sha256: sha256(r1wav),
+    round2TxAmplitudes: derived.txAmplitudes,
+    round2Samples: r2file,
+    round2Sha256: sha256(r2wav),
+  });
+  verifyCalibrationWavHashes(v2, r1wav, r2wav);
+  assert.throws(() => verifyCalibrationWavHashes(v2, r2wav, r1wav), /mismatch/);
+  const tampered = Buffer.from(r1wav);
+  tampered[tampered.length - 1] ^= 0x01;
+  assert.throws(() => verifyCalibrationWavHashes(v2, tampered, r2wav), /Round-1 WAV SHA-256 mismatch/);
 });
 
 test("hum-room v2 regression: legacy PARTIAL, Round-2 e_s PASS, source labeled", () => {

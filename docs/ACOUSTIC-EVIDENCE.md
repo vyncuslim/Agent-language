@@ -123,9 +123,23 @@ npm run acoustic:evidence -- capture.wav --calibration vaml-acoustic-calibration
 ```
 
 A `--calibration` file must be v2; v1 files are rejected (legacy
-diagnostic only). The report prints the calibration source
-(`v2 closed-loop (MEASURED ROUND 2)` plus both SHAs) so the gains used are
-always auditable.
+diagnostic only). For the complete R4 hash linkage, also pass the two raw
+round recordings — the analyzer re-hashes them and REJECTS on mismatch:
+
+```bash
+npm run acoustic:evidence -- capture.wav \
+  --calibration vaml-acoustic-calibration-v2.json \
+  --round1-wav vaml-symbol-cal-round1-48000hz.wav \
+  --round2-wav vaml-symbol-cal-round2-48000hz.wav
+```
+
+Without the round WAVs, SHA provenance is declared-but-unverified (noted in
+the output). The loader additionally rejects hand-edited gains: persisted
+`rawSymbolGains` / `effectiveRxGains` / `measuredEffectiveGains` /
+`predictedEffectiveGains` must equal the round measurements (tolerance
+1e-9), and confusion tables must exactly match their decision records. The
+report prints the calibration source as `v2 closed-loop (MEASURED ROUND 2)`
+plus both SHAs, so the gains used are always auditable.
 
 ### v1 (legacy diagnostic): 750 ms tones
 

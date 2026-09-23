@@ -5,16 +5,20 @@
  * Usage:
  *   npm run acoustic:evidence -- path/to/capture.wav
  *   npm run acoustic:evidence -- path/to/capture.wav --json report.json
- *   npm run acoustic:evidence -- path/to/capture.wav --calibration vaml-acoustic-calibration.json
+ *   npm run acoustic:evidence -- path/to/capture.wav --calibration v2.json
+ *   npm run acoustic:evidence -- path/to/capture.wav --calibration v2.json \
+ *     --round1-wav round1.wav --round2-wav round2.wav
  *
- * The input WAV is only read, never modified. A calibration file applies
- * measured carrier offsets + RX normalization; verdict rules are identical
- * either way (CRC PASS + byte-exact match, no "close enough").
+ * The input WAV is only read, never modified. A v2 calibration file applies
+ * MEASURED Round-2 effective RX gains; v1 files are rejected (legacy
+ * diagnostic). With --round1-wav/--round2-wav the round recordings are
+ * re-hashed against the profile (mismatch REJECTS). Verdict rules are
+ * identical either way (CRC PASS + byte-exact match, no "close enough").
  */
 import { promises as fs } from "node:fs";
 import { basename } from "node:path";
 import { analyzeEvidenceWav, formatEvidenceReport, type EvidenceEqualization } from "../src/acoustic-evidence.js";
-import { loadChannelCalibrationV2, toEvidenceEqualizationV2 } from "../src/acoustic-calibration.js";
+import { loadChannelCalibrationV2, toEvidenceEqualizationV2, verifyCalibrationWavHashes } from "../src/acoustic-calibration.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const at = args.indexOf(flag);
@@ -36,14 +40,21 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
+  const round1WavPath = flagValue(args, "--round1-wav");
+  const round2WavPath = flagValue(args, "--round2-wav");
+  if ((round1WavPath === undefined) !== (round2WavPath === undefined)) {
+    console.error("Provide both --round1-wav and --round2-wav, or neither");
+    process.exitCode = 2;
+    return;
+  }
   const positional = args.filter((a, i) => {
     if (!a || a.startsWith("--")) return false;
     const prev = args[i - 1];
-    return prev !== "--json" && prev !== "--calibration";
+    return prev !== "--json" && prev !== "--calibration" && prev !== "--round1-wav" && prev !== "--round2-wav";
   });
   const wavPath = positional[0];
   if (!wavPath) {
-    console.error("Usage: npm run acoustic:evidence -- <capture.wav> [--json report.json] [--calibration vaml-acoustic-calibration.json]");
+    console.error("Usage: npm run acoustic:evidence -- <capture.wav> [--json report.json] [--calibration v2.json] [--round1-wav round1.wav --round2-wav round2.wav]");
     process.exitCode = 2;
     return;
   }
@@ -76,6 +87,22 @@ async function main(): Promise<void> {
         throw new Error("Unsupported calibration version");
       }
       const cal = loadChannelCalibrationV2(raw);
+      if (round1WavPath !== undefined && round2WavPath !== undefined) {
+        try {
+          const [round1Wav, round2Wav] = await Promise.all([
+            fs.readFile(round1WavPath),
+            fs.readFile(round2WavPath),
+          ]);
+          verifyCalibrationWavHashes(cal, round1Wav, round2Wav);
+          console.error("Round WAV hashes verified against the calibration profile.");
+        } catch (error) {
+          console.error(`Round WAV verification failed: ${error instanceof Error ? error.message : error}`);
+          process.exitCode = 2;
+          return;
+        }
+      } else {
+        console.error("Note: round WAVs not provided; SHA provenance is declared but not re-verified.");
+      }
       const view = toEvidenceEqualizationV2(cal);
       eq = { frequenciesHz: view.frequenciesHz, rxGains: view.rxGains, provenance: view.provenance };
       eqSource = basename(calPath);
