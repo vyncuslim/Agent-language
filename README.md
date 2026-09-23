@@ -582,18 +582,63 @@ The live receiver includes clock-drift recovery, arbitrary chunk handling, sampl
 See [`spec/ACOUSTIC-TRANSPORT-0.2.md`](spec/ACOUSTIC-TRANSPORT-0.2.md).
 
 Two-computer speaker→air→microphone runs must be verified offline from the
-raw Computer B evidence WAV, never from a browser PASS/FAIL indicator:
+raw Computer B evidence WAV, never from a browser PASS/FAIL indicator.
+
+## Two-computer acoustic verification — step by step
+
+Keep the same speaker, volume, distance and AudioContext for every step.
+Do not change the volume between calibration and probe.
+
+**1. Open the capture tool.** On both computers, open
+`sdk/typescript/tools/two-computer-acoustic-evidence.html`
+(serve the `sdk/typescript/tools` directory over HTTP, e.g.
+`npx serve .`, then browse to the file).
+
+**2. Round 1 (uniform 26 ms symbols).** On Computer B click
+**Arm Symbol Cal Round 1**; when it says `ROUND 1 LISTENING`, click
+**Send Symbol Cal Round 1** on Computer A. B auto-derives channel gains
+plus the confusion matrix — save the **Round 1 WAV** and the
+**Round 1 profile**, then load the profile on Computer A.
+
+**3. Round 2 (TX-compensated).** On B click **Arm Symbol Cal Round 2**;
+click **Send Compensated Round 2** on A. B measures the effective RX
+gains directly from this recording — save the **Round 2 WAV** and the
+**calibration v2 JSON**, then load the v2 JSON on Computer A.
+
+**4. Evidence probe.** On B click **Arm Evidence**; when it says
+`LISTENING — SEND NOW`, click **Send Calibrated Evidence Probe** on A.
+Save the **raw evidence WAV** without editing it.
+
+**5. Verify offline** (from `sdk/typescript`):
 
 ```sh
-npm run acoustic:evidence -- vaml-two-computer-evidence-48000hz.wav
+npm ci
+npm run build
+npm run acoustic:evidence -- vaml-two-computer-evidence-48000hz.wav \
+  --calibration vaml-acoustic-calibration-v2.json \
+  --round1-wav vaml-symbol-cal-round1-48000hz.wav \
+  --round2-wav vaml-symbol-cal-round2-48000hz.wav
 ```
 
-See [`docs/ACOUSTIC-EVIDENCE.md`](docs/ACOUSTIC-EVIDENCE.md). A physical run
-counts as verified only on `CRC PASS + BYTE EXACT MATCH`. For rooms with
-uneven speaker/microphone response, run the two-round 26 ms symbol
-calibration first (`--calibration vaml-acoustic-calibration-v2.json`); CRC
-and verdict rules stay unchanged. The 750 ms long-tone calibration remains
-only as a legacy diagnostic.
+Without the round WAVs, SHA provenance is declared-but-unverified. Without
+any calibration file, the analyzer still runs (unequalized path).
+
+A physical run counts as verified only on:
+
+```text
+VAC1 PASS + length 8 + CRC PASS + payload == a34f912c770de851
+→ VERIFIED PASS
+```
+
+`VERIFIED PARTIAL` means packet structure was found but no burst or strict
+soft-combination reached CRC + exact match; `VERIFIED FAIL` means no VAML
+packet structure was recovered. CRC is transport corruption detection, not
+cryptographic authentication, and verdict rules never bend for "close"
+payloads. The 750 ms long-tone calibration remains only as a legacy
+diagnostic.
+
+See [`docs/ACOUSTIC-EVIDENCE.md`](docs/ACOUSTIC-EVIDENCE.md) and
+[`spec/ACOUSTIC-TRANSPORT-0.2.md`](spec/ACOUSTIC-TRANSPORT-0.2.md).
 
 ---
 
