@@ -581,6 +581,16 @@ The live receiver includes clock-drift recovery, arbitrary chunk handling, sampl
 
 See [`spec/ACOUSTIC-TRANSPORT-0.2.md`](spec/ACOUSTIC-TRANSPORT-0.2.md).
 
+Two-computer speaker→air→microphone runs must be verified offline from the
+raw Computer B evidence WAV, never from a browser PASS/FAIL indicator:
+
+```sh
+npm run acoustic:evidence -- vaml-two-computer-evidence-48000hz.wav
+```
+
+See [`docs/ACOUSTIC-EVIDENCE.md`](docs/ACOUSTIC-EVIDENCE.md). A physical run
+counts as verified only on `CRC PASS + BYTE EXACT MATCH`.
+
 ---
 
 # Troubleshooting across computers

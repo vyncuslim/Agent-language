@@ -40,6 +40,7 @@
     "world-pack": "tsx tools/build-world-lexicon.ts",
     "corpus-pack": "tsx tools/build-world-semantic-corpus.ts",
     "corpus:omw": "tsx tools/build-omw-corpus.ts",
+    "acoustic:evidence": "tsx tools/analyze-acoustic-evidence.ts",
     "private-corpus-run": "tsx tools/run-private-corpus-build.ts"
   },
   "dependencies": {
