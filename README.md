@@ -642,6 +642,44 @@ See [`docs/ACOUSTIC-EVIDENCE.md`](docs/ACOUSTIC-EVIDENCE.md) and
 
 ---
 
+# Text transport (copy/paste between computers)
+
+When two computers cannot reach each other over TCP or audio, an
+already-encrypted VAML frame can travel as one paste-safe text line:
+
+```text
+VAMLTXT1.<base64url>.<crc32>
+```
+
+```ts
+import { encodeVamlFrameToText, decodeVamlFrameFromText } from "@vaml/runtime";
+
+// Computer A: seal with the session, then copy this line.
+const pasted = encodeVamlFrameToText(sealedFrame);
+
+// Computer B: paste it back, decode the exact bytes, open with AEAD.
+const recovered = decodeVamlFrameFromText(pasted);
+const fields = session.open(recovered, 0); // or session.decode(recovered)
+```
+
+Rules:
+
+- The checksum detects typos and truncation; it authenticates nothing.
+  Only the session AEAD decides acceptance (wrong key, replay and forgery
+  all reject at `open`).
+- Surrounding whitespace from chat boxes is tolerated; anything else
+  malformed fails closed — never partial bytes.
+- Success means byte-identical decode **and** AEAD `open` acceptance
+  **and** byte-exact payload. Try it locally first:
+
+```sh
+npm run demo:text
+```
+
+See [`spec/TEXT-TRANSPORT-0.1.md`](spec/TEXT-TRANSPORT-0.1.md).
+
+---
+
 # Troubleshooting across computers
 
 ## `node` is not recognized / command not found

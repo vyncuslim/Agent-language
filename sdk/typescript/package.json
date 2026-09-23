@@ -29,6 +29,7 @@
     "demo": "node dist/examples/agent-pair-demo.js",
     "demo:agents": "node dist/examples/autonomous-agent-pair.js",
     "demo:audio": "node dist/examples/acoustic-frame-demo.js",
+    "demo:text": "node dist/examples/text-transport-demo.js",
     "test:audio:live": "tsx tools/live-acoustic-test-server.ts",
     "vaml": "node dist/src/cli.js",
     "pack": "tsx tools/build-private-lexicon.ts",
