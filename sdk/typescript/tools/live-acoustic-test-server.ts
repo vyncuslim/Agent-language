@@ -10,6 +10,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invali
 const here = dirname(fileURLToPath(import.meta.url));
 const loopbackPage = join(here, "live-acoustic-test-v4.html");
 const twoComputerPage = join(here, "two-computer-acoustic-test-v5.html");
+const twoComputerEvidencePage = join(here, "two-computer-acoustic-evidence.html");
 
 const server = createServer(async (request, response) => {
   try {
@@ -26,6 +27,11 @@ const server = createServer(async (request, response) => {
       url.pathname === "/two-computer-acoustic-test-v5.html"
     ) {
       page = twoComputerPage;
+    } else if (
+      url.pathname === "/two-computer-evidence" ||
+      url.pathname === "/two-computer-acoustic-evidence.html"
+    ) {
+      page = twoComputerEvidencePage;
     } else {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("Not found");
@@ -52,7 +58,8 @@ server.listen(port, host, () => {
     name: "VAML Live Acoustic Test",
     loopbackUrl: `http://${host}:${port}/`,
     twoComputerUrl: `http://${host}:${port}/two-computer`,
-    instruction: "For two computers: arm Computer B, wait through CALIBRATING, and only send from Computer A once B says LISTENING — SEND NOW. v5 uses matched-preamble scanning instead of RMS burst segmentation.",
+    evidenceUrl: `http://${host}:${port}/two-computer-evidence`,
+    instruction: "For rigorous verification, use /two-computer-evidence to preserve Computer B's raw microphone WAV, then analyze that capture independently of the browser decoder.",
   }));
 });
 
