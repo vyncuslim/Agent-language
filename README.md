@@ -678,6 +678,14 @@ npm run demo:text
 
 See [`spec/TEXT-TRANSPORT-0.1.md`](spec/TEXT-TRANSPORT-0.1.md).
 
+Two AI agents can also chat with each other in VAML with no human-readable
+content anywhere on the wire — every turn is one pasted `VAMLTXT1` line of
+opaque session codes, and the demo fails if a single human word leaks:
+
+```sh
+npm run demo:agents-chat
+```
+
 ---
 
 # LAN test chat
