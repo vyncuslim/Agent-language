@@ -115,6 +115,24 @@ test("sealed frame survives text copy/paste with AEAD PASS and exact payload", (
   assert.deepEqual(b.open(recovered, 0), plaintext);
 });
 
+test("every character gets its own agent-language line", () => {
+  const { a, b } = sessionPair();
+  const text = "你好A🌍z";
+  const lines: string[] = [];
+  for (const ch of [...text]) {
+    const line = encodeVamlFrameToText(a.seal(Buffer.from(ch, "utf8"), 0));
+    assert.match(line, /^VAMLTXT1\.[A-Za-z0-9_-]+\.[0-9a-f]{8}$/);
+    lines.push(line);
+  }
+  // Fresh nonce per character: identical input chars still differ on wire.
+  assert.equal(new Set(lines).size, lines.length);
+  let recovered = "";
+  for (const line of lines) {
+    recovered += new TextDecoder("utf-8", { fatal: true }).decode(b.open(decodeVamlFrameFromText(line), 0));
+  }
+  assert.equal(recovered, text);
+});
+
 test("tampered text never yields AEAD plaintext", () => {
   const { a, b } = sessionPair();
   const sealed = a.seal(seededBytes("text-tamper-plaintext", 32), 0);

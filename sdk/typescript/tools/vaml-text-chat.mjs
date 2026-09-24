@@ -238,6 +238,21 @@ async function cmdSend() {
   console.log(encodeVamlFrameToText(sealed));
 }
 
+async function cmdSendChars() {
+  // Every single character gets its own sealed Agent-language line:
+  // 中文、emoji、拉丁字母一视同仁，无一例外走 AEAD + armor。
+  const text = args.slice(args.indexOf("sendchars") + 1).join(" ");
+  const chars = [...text];
+  if (!chars.length || chars.length > 200) throw new Error("Provide 1-200 characters");
+  const { runtime, saved } = await loadRuntime();
+  for (const ch of chars) {
+    const sealed = runtime.seal(Buffer.from(ch, "utf8"), 0);
+    console.log(encodeVamlFrameToText(sealed));
+  }
+  await writePrivate(files.session, serializeSession({ context: runtime.context, conceptToCode: runtime.conceptToCode, codeToConcept: runtime.codeToConcept, confirmationTag: saved.confirmationTag }));
+  console.error(`${chars.length} Agent-language lines printed (one per character). Paste them all; the peer recvs each line.`);
+}
+
 async function cmdRecv() {
   const line = args.slice(args.indexOf("recv") + 1).join(" ");
   if (!line) throw new Error("Usage: recv <VAMLTXT1 line>");
@@ -274,12 +289,13 @@ async function main() {
     else if (cmd === "pair-finish") await cmdPairFinish();
     else if (cmd === "pair-confirm") await cmdPairConfirm();
     else if (cmd === "send") await cmdSend();
+    else if (cmd === "sendchars") await cmdSendChars();
     else if (cmd === "recv") await cmdRecv();
     else if (cmd === "status") await cmdStatus();
     else {
       console.log("Usage: node tools/vaml-text-chat.mjs [--dir STATE] <init|pair-start|pair-finish|pair-confirm|send|recv|status> [...]");
       console.log("  init --id NAME [--bundle VAMLBUNDLE...]");
-      console.log("  pair-start | pair-finish <VAMLHELLO> | pair-confirm <VAMLCONFIRM> | send <text> | recv <VAMLTXT1>");
+      console.log("  pair-start | pair-finish <VAMLHELLO> | pair-confirm <VAMLCONFIRM> | send <text> | sendchars <text> | recv <VAMLTXT1>");
       process.exitCode = 2;
     }
   } catch (error) {
