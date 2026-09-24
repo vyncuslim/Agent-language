@@ -24,4 +24,5 @@ export * from "./acoustic-calibration.js";
 export * from "./acoustic-live.js";
 export * from "./acoustic-browser.js";
 export * from "./text-transport.js";
+export * from "./translator.js";
 export * from "./ingestion.js";

@@ -37,6 +37,7 @@ import {
   exportPrivateKey,
   finishHandshake,
   verifyConfirmation,
+  translateViaEndpoint,
   PrivateSemanticIndex,
 } from "../dist/src/index.js";
 
@@ -263,6 +264,28 @@ async function cmdRecv() {
   console.log(new TextDecoder("utf-8", { fatal: true }).decode(plain));
 }
 
+async function cmdTranslate() {
+  // Official Translator boundary ONLY. Armor is verified locally (fail fast
+  // on typos); meaning comes exclusively from the authorized endpoint.
+  // There is deliberately no local dictionary fallback.
+  const toVaml = args.includes("--to-vaml");
+  const rest = args.slice(args.indexOf("translate") + 1).filter((a) => a !== "--to-vaml").join(" ");
+  if (!rest) throw new Error("Usage: translate [--to-vaml] <VAMLTXT1 line | text>");
+  const endpoint = process.env.VAML_TRANSLATOR_API_URL;
+  if (!endpoint) {
+    throw new Error("VAML_TRANSLATOR_API_URL is not set: translation requires the authorized endpoint");
+  }
+  const token = process.env.VAML_TRANSLATOR_API_TOKEN || undefined;
+  if (!toVaml) decodeVamlFrameFromText(rest);
+  const output = await translateViaEndpoint(
+    endpoint,
+    toVaml ? "human-to-vaml" : "vaml-to-human",
+    rest,
+    token ? { token } : {},
+  );
+  console.log(output);
+}
+
 async function cmdStatus() {
   const bundle = await readJson(files.bundle);
   const session = await readJson(files.session);
@@ -290,12 +313,13 @@ async function main() {
     else if (cmd === "pair-confirm") await cmdPairConfirm();
     else if (cmd === "send") await cmdSend();
     else if (cmd === "sendchars") await cmdSendChars();
+    else if (cmd === "translate") await cmdTranslate();
     else if (cmd === "recv") await cmdRecv();
     else if (cmd === "status") await cmdStatus();
     else {
       console.log("Usage: node tools/vaml-text-chat.mjs [--dir STATE] <init|pair-start|pair-finish|pair-confirm|send|recv|status> [...]");
       console.log("  init --id NAME [--bundle VAMLBUNDLE...]");
-      console.log("  pair-start | pair-finish <VAMLHELLO> | pair-confirm <VAMLCONFIRM> | send <text> | sendchars <text> | recv <VAMLTXT1>");
+      console.log("  pair-start | pair-finish <VAMLHELLO> | pair-confirm <VAMLCONFIRM> | send <text> | sendchars <text> | translate [--to-vaml] <line|text> | recv <VAMLTXT1>");
       process.exitCode = 2;
     }
   } catch (error) {

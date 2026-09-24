@@ -739,6 +739,26 @@ across restarts, so replays stay rejected). Tool:
 `sdk/typescript/tools/vaml-text-chat.mjs`; state stays in `.vaml-text-chat/`
 (never commit it).
 
+## Translating through the official Translator boundary
+
+Human ↔ VAML interpretation belongs exclusively to the authorized
+translator backend ([Agent-language-Translate](https://github.com/vyncuslim/Agent-language-Translate)).
+There is deliberately **no local dictionary**: without a configured
+endpoint, translation refuses instead of guessing.
+
+```powershell
+$env:VAML_TRANSLATOR_API_URL='https://agent-language-translate.vercel.app/api/translate'
+# optional: $env:VAML_TRANSLATOR_API_TOKEN='<bearer-token>'
+
+node tools/vaml-text-chat.mjs translate 'VAMLTXT1…'
+node tools/vaml-text-chat.mjs translate --to-vaml '你好世界'
+```
+
+A `VAMLTXT1` line is armor-checked locally first (typos fail fast without
+touching the network); meaning comes only from the endpoint's `{output}`.
+Tokens travel via environment, never CLI args. Never paste session keys
+into the Translator.
+
 ---
 
 # Troubleshooting across computers
