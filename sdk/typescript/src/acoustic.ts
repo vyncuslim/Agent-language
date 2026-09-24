@@ -102,8 +102,26 @@ export function decodeVamlFrameFromWav(
   if (sampleRate !== profile.sampleRate) throw new Error("Unexpected acoustic sample rate");
   const symbolSamples = Math.round(profile.sampleRate * profile.symbolMs / 1000);
 
-  const start = findPreamble(samples, profile, symbolSamples);
-  if (start < 0) throw new Error("Acoustic preamble not found");
+  const candidates = findPreambleCandidates(samples, profile, symbolSamples);
+  if (candidates.length === 0) throw new Error("Acoustic preamble not found");
+  let lastError: Error | undefined;
+  for (const start of candidates) {
+    try {
+      return decodeAtPreamble(samples, start, profile, symbolSamples, maxFrameBytes);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError ?? new Error("Acoustic preamble not found");
+}
+
+function decodeAtPreamble(
+  samples: Int16Array,
+  start: number,
+  profile: AcousticProfile,
+  symbolSamples: number,
+  maxFrameBytes: number,
+): Buffer {
   let cursor = start + profile.preamble.length * symbolSamples;
 
   const headerSymbols = 8 * 4; // 8 bytes, four 2-bit symbols per byte
@@ -170,26 +188,62 @@ function symbolsToBytes(symbols: readonly number[]): Buffer {
   return output;
 }
 
-function findPreamble(samples: Int16Array, profile: AcousticProfile, symbolSamples: number): number {
-  const maxLeading = Math.min(samples.length - profile.preamble.length * symbolSamples, profile.sampleRate * 2);
-  if (maxLeading < 0) return -1;
-  const stride = Math.max(1, Math.floor(symbolSamples / 8));
-  let bestOffset = -1;
-  let bestMatches = -1;
-  for (let offset = 0; offset <= maxLeading; offset += stride) {
-    let matches = 0;
-    for (let i = 0; i < profile.preamble.length; i++) {
-      const symbol = detectSymbol(samples, offset + i * symbolSamples, profile, symbolSamples);
-      if (symbol === profile.preamble[i]) matches++;
-      else if (i < 4) break;
-    }
-    if (matches > bestMatches) {
-      bestMatches = matches;
-      bestOffset = offset;
-    }
-    if (matches === profile.preamble.length) return offset;
+function countPreambleMatches(
+  samples: Int16Array,
+  offset: number,
+  profile: AcousticProfile,
+  symbolSamples: number,
+): number {
+  let matches = 0;
+  for (let i = 0; i < profile.preamble.length; i++) {
+    const symbol = detectSymbol(samples, offset + i * symbolSamples, profile, symbolSamples);
+    if (symbol === profile.preamble[i]) matches++;
+    else if (i < 4) break;
   }
-  return bestMatches >= Math.floor(profile.preamble.length * 0.9) ? bestOffset : -1;
+  return matches;
+}
+
+/**
+ * Collect preamble candidate offsets.
+ *
+ * Tone windows are phase-invariant: an offset up to a few ramps away from the
+ * true start also scores a full preamble match (its windows are tail+head mixes
+ * of the true symbols that still decide correctly). Locking the first such
+ * offset misaligns the symbol grid, so candidates are returned as a list and
+ * the caller trial-decodes each until the CRC authenticates a packet.
+ */
+function findPreambleCandidates(
+  samples: Int16Array,
+  profile: AcousticProfile,
+  symbolSamples: number,
+  limit = 12,
+): number[] {
+  const maxLeading = Math.min(samples.length - profile.preamble.length * symbolSamples, profile.sampleRate * 2);
+  if (maxLeading < 0) return [];
+  const stride = Math.max(1, Math.floor(symbolSamples / 8));
+  const partialThreshold = Math.floor(profile.preamble.length * 0.9);
+  const candidates: number[] = [];
+  let bestPartial = -1;
+  let bestPartialMatches = -1;
+  for (let offset = 0; offset <= maxLeading; offset += stride) {
+    const matches = countPreambleMatches(samples, offset, profile, symbolSamples);
+    if (matches === profile.preamble.length) {
+      let next = offset;
+      while (next <= maxLeading && candidates.length < limit) {
+        if (countPreambleMatches(samples, next, profile, symbolSamples) < profile.preamble.length) break;
+        candidates.push(next);
+        next += stride;
+      }
+      // The encrypted payload cannot re-host the preamble, so the first
+      // full-match run is the only run that matters; stop scanning.
+      return candidates;
+    }
+    if (matches >= partialThreshold && matches > bestPartialMatches) {
+      bestPartialMatches = matches;
+      bestPartial = offset;
+    }
+  }
+  return bestPartial >= 0 ? [bestPartial] : [];
 }
 
 function decodeSymbolsToBytes(
